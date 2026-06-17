@@ -1,0 +1,34 @@
+layout_version: "2026-06-17"
+quanta_data_contract_source: "configs/schemas"
+default_paths:
+  raw_objects: "raw_objects"
+  raw_manifests: "raw_manifests"
+  canonical_documents: "canonical_documents"
+  evidence_store: "evidence_store"
+  agent_runs: "agent_workspace/runs"
+  prompt_packs: "agent_workspace/prompt_packs"
+  candidates: "agent_workspace/candidates"
+  review_packages: "agent_workspace/review_packages"
+  gold: "gold"
+pipelines:
+  web_crawler:
+    writes:
+      - raw_objects
+      - raw_manifests
+    may_publish: false
+  futures_daily:
+    writes:
+      - agent_runs
+      - prompt_packs
+      - candidates
+      - review_packages
+    allowed_states:
+      - candidate
+      - machine_published
+      - pending_review
+  assistant_qa:
+    writes:
+      - agent_runs
+      - prompt_packs
+      - candidates
+    no_evidence_policy: "insufficient_evidence"
