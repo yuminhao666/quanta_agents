@@ -86,6 +86,102 @@ def test_build_logic_chain_bundle_scores_dimensions_and_candidates():
     assert candidates[0]["candidate_type"] == "new_dimension"
 
 
+def test_logic_chain_adds_brief_anchor_and_benchmark_map_for_supporting_realtime_signals():
+    summary = {
+        "date": "20260618",
+        "sentiment_scores": {"原油": -3},
+        "detailed_analysis": {
+            "原油": {
+                "commodity": "原油",
+                "fundamental_summary": "美伊签署备忘录后霍尔木兹海峡恢复通航，地缘溢价快速回吐，原油主线偏空。",
+                "bearish_factors": ["霍尔木兹海峡恢复通航，地缘风险溢价回吐"],
+                "bullish_factors": ["EIA商业原油库存大降，近端低库存支撑底部"],
+                "price_forecast": ["后续跟踪60天协议观察期内航运恢复节奏"],
+                "sentiment_score": -3,
+                "original_sources": [{"row_id": "r1"}],
+            }
+        },
+    }
+    alignment = {
+        "frameworks_used": {"原油": {"framework_id": "fw_oil", "asset_id": "futures.INE.sc"}},
+        "alignments": [
+            {
+                "factor_id": "brief-bearish",
+                "asset": "原油",
+                "source_field": "bearish_factors",
+                "direction": "bearish",
+                "text": "霍尔木兹海峡恢复通航，地缘风险溢价回吐",
+                "framework_node": {"node_id": "geo", "label": "原油/地缘政治"},
+                "match": {"method": "framework_dimension", "confidence": 0.88},
+                "status": "auto_linked",
+            },
+            {
+                "factor_id": "new-bearish",
+                "asset": "原油",
+                "source_field": "key_events",
+                "direction": "event",
+                "llm_impact_direction": "bearish",
+                "text": "OPEC+宣布7月继续增产18.8万桶/日，供应增长担忧强化",
+                "framework_node": {"node_id": "supply", "label": "原油/供应"},
+                "match": {"method": "framework_dimension", "confidence": 0.82},
+                "status": "auto_linked",
+            },
+        ],
+    }
+
+    bundle = build_logic_chain_bundle(summary, alignment)
+    anchor = bundle["brief_thesis_anchor"]["assets"]["原油"]
+    benchmark = bundle["brief_logic_benchmark_map"]["assets"]["原油"]
+
+    assert anchor["direction"] == "bearish"
+    assert anchor["thesis_title"].startswith("原油偏空主线")
+    assert benchmark["asset_relation"] == "supports_or_extends_brief"
+    assert benchmark["stats"]["inherited_signal_count"] >= 1
+    assert benchmark["stats"]["new_signal_count"] >= 1
+    assert bundle["logic_chains"]["assets"]["原油"]["brief_logic_benchmark_map"]["asset"] == "原油"
+
+
+def test_logic_chain_benchmark_map_marks_conflicts_against_market_brief_baseline():
+    summary = {
+        "date": "20260618",
+        "sentiment_scores": {"原油": -3},
+        "detailed_analysis": {
+            "原油": {
+                "commodity": "原油",
+                "fundamental_summary": "美伊协议落地后地缘溢价回吐，原油短期主线偏空。",
+                "bearish_factors": ["美伊协议落地后霍尔木兹通航恢复，地缘溢价回吐"],
+                "bullish_factors": ["EIA商业原油库存大降，近端低库存支撑底部"],
+                "sentiment_score": -3,
+                "original_sources": [{"row_id": "r1"}],
+            }
+        },
+    }
+    alignment = {
+        "frameworks_used": {"原油": {"framework_id": "fw_oil", "asset_id": "futures.INE.sc"}},
+        "alignments": [
+            {
+                "factor_id": "realtime-bullish",
+                "asset": "原油",
+                "source_field": "bullish_factors",
+                "direction": "bullish",
+                "text": "EIA商业原油库存大降，近端低库存支撑底部",
+                "framework_node": {"node_id": "inventory", "label": "原油/库存"},
+                "match": {"method": "framework_dimension", "confidence": 0.9},
+                "status": "auto_linked",
+            }
+        ],
+    }
+
+    bundle = build_logic_chain_bundle(summary, alignment)
+    benchmark = bundle["brief_logic_benchmark_map"]["assets"]["原油"]
+    chain_map = benchmark["chain_maps"][0]
+
+    assert benchmark["asset_relation"] == "has_conflicts_needing_review"
+    assert chain_map["benchmark_relation"] == "conflicts_with_baseline"
+    assert "EIA商业原油库存大降" in chain_map["conflict_signals"][0]["text"]
+    assert chain_map["quality_gate"] == "logic_chain_incremental_layer_only"
+
+
 def test_dimension_scores_merge_duplicate_cross_field_evidence():
     summary = {
         "date": "20260618",

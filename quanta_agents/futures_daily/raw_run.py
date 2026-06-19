@@ -821,6 +821,8 @@ def run_from_raw_folder(
     write_json(run_dir / "dimension_scores.json", logic_bundle["dimension_scores"])
     write_json(run_dir / "trade_thesis.json", logic_bundle["trade_thesis"])
     write_json(run_dir / "logic_chains.json", logic_bundle["logic_chains"])
+    write_json(run_dir / "brief_thesis_anchor.json", logic_bundle["brief_thesis_anchor"])
+    write_json(run_dir / "brief_logic_benchmark_map.json", logic_bundle["brief_logic_benchmark_map"])
     write_json(run_dir / "logic_summary.json", logic_bundle["logic_summary"])
     write_json(run_dir / "framework_update_candidates.json", logic_bundle["framework_update_candidates"])
     write_json(run_dir / "framework_format_review.json", logic_bundle["framework_format_review"])
@@ -840,6 +842,8 @@ def run_from_raw_folder(
                 "dimension_scores": "dimension_scores.json",
                 "trade_thesis": "trade_thesis.json",
                 "logic_chains": "logic_chains.json",
+                "brief_thesis_anchor": "brief_thesis_anchor.json",
+                "brief_logic_benchmark_map": "brief_logic_benchmark_map.json",
                 "logic_summary": "logic_summary.json",
                 "framework_update_candidates": "framework_update_candidates.json",
                 "framework_format_review": "framework_format_review.json",

@@ -141,6 +141,27 @@ research_reports canonical/evidence
 
 第一阶段验收不是“逻辑链写得比期市速递好”，而是“逻辑链能解释期市速递，并承接新增信号而不破坏原成品质量”。
 
+### WO-DEV-20260620-007 v1 落地
+
+`futures_daily.logic_chain` 已新增两个候选解释层产物，不改变 `market_brief` 和 `commodity_summary` 的主展示合同：
+
+- `brief_thesis_anchor.json` / `brief_thesis_anchor.v1`
+  - 从 `commodity_summary.detailed_analysis[asset]` 抽取资产级期市速递 baseline。
+  - 记录 `direction`、`thesis_title`、`main_thesis`、`key_evidence`、`tracking_items`、`risk_items` 和 `invalidation_conditions`。
+  - 定位是教师样本和质量锚，不是新的日报正文。
+
+- `brief_logic_benchmark_map.json` / `brief_logic_benchmark_map.v1`
+  - 把每条动态 `logic_chain` 映射回对应的 `brief_thesis_anchor`。
+  - 对信号分为 `inherited_signals`、`new_signals`、`conflict_signals`、`pending_observations`。
+  - 明确 `primary_display_contract=market_brief_and_commodity_summary`，`logic_chain_role=incremental_signal_evidence_skeleton`。
+  - 同步嵌入 `logic_chains.assets[asset].brief_logic_benchmark_map`，供平台后续展示“继承/新增/冲突/待观察”。
+
+质量边界：
+
+- 支持 baseline 的动态信号可进入解释层和跟踪层。
+- 与 baseline 冲突的实时信号只进入 `conflict_signals`，并要求人工复核，不自动改写期市速递结论。
+- 只有当人类接受逻辑链叙事质量后，动态链才可升级为主展示候选。
+
 ## 5. 框架权重优化
 
 权重拆成四层，避免让短期新闻直接覆盖长期框架：

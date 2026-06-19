@@ -1118,6 +1118,371 @@ def _watch_points(rows: list[dict[str, Any]]) -> list[str]:
     return points[:5]
 
 
+def _list_texts(value: Any, *, limit: int = 8) -> list[str]:
+    if value is None:
+        return []
+    items = value if isinstance(value, list) else [value]
+    texts: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            text = item.get("text") or item.get("summary") or item.get("title") or item.get("content")
+        else:
+            text = item
+        text = _summary_sentence(text, limit=180)
+        if text:
+            texts.append(text)
+    return texts[:limit]
+
+
+def _score_from_summary(summary: dict[str, Any], asset: str, detail: dict[str, Any]) -> float:
+    for value in (
+        detail.get("sentiment_score"),
+        (summary.get("sentiment_scores") or {}).get(asset),
+    ):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _brief_anchor_direction(score: float) -> str:
+    if score > 0.8:
+        return "bullish"
+    if score < -0.8:
+        return "bearish"
+    return "neutral"
+
+
+def _brief_anchor_direction_label(direction: str) -> str:
+    return {
+        "bullish": "偏多",
+        "bearish": "偏空",
+        "neutral": "中性/待验证",
+    }.get(direction, "中性/待验证")
+
+
+def _field_direction(field: str, text: str) -> str:
+    if field == "bullish_factors":
+        return "bullish"
+    if field == "bearish_factors":
+        return "bearish"
+    sign = _text_sign(text)
+    return _direction_for_score(sign)
+
+
+def _evidence_from_detail(detail: dict[str, Any], *, limit: int = 10) -> list[dict[str, Any]]:
+    rows = []
+    for field in (
+        "bullish_factors",
+        "bearish_factors",
+        "supply_demand",
+        "key_events",
+        "key_data",
+        "price_forecast",
+    ):
+        for index, text in enumerate(_list_texts(detail.get(field), limit=limit)):
+            rows.append(
+                {
+                    "evidence_id": _hash_id("BRFEV", str(detail.get("commodity") or ""), field, str(index), text),
+                    "source_field": field,
+                    "direction": _field_direction(field, text),
+                    "text": text,
+                }
+            )
+    return rows[:limit]
+
+
+def _rank_anchor_evidence(rows: list[dict[str, Any]], anchor_direction: str, *, limit: int = 8) -> list[dict[str, Any]]:
+    field_rank = {
+        "bullish_factors": 6,
+        "bearish_factors": 6,
+        "supply_demand": 5,
+        "key_events": 4,
+        "key_data": 3,
+        "price_forecast": 2,
+    }
+    rows = sorted(
+        rows,
+        key=lambda row: (
+            row.get("direction") == anchor_direction,
+            field_rank.get(str(row.get("source_field") or ""), 0),
+            len(str(row.get("text") or "")),
+        ),
+        reverse=True,
+    )
+    return rows[:limit]
+
+
+def _tracking_from_detail(detail: dict[str, Any], *, limit: int = 5) -> list[str]:
+    texts = []
+    for field in ("price_forecast", "market_observations", "key_events", "key_data"):
+        texts.extend(_list_texts(detail.get(field), limit=4))
+    result = []
+    for text in texts:
+        fact = _concise_fact(text, limit=90)
+        if fact and fact not in result:
+            result.append(fact)
+    return result[:limit]
+
+
+def _opposite_direction(direction: str) -> str:
+    return "bearish" if direction == "bullish" else "bullish" if direction == "bearish" else ""
+
+
+def _risk_items_from_evidence(rows: list[dict[str, Any]], anchor_direction: str, *, limit: int = 4) -> list[str]:
+    opposite = _opposite_direction(anchor_direction)
+    if not opposite:
+        return []
+    risks = []
+    for row in rows:
+        if row.get("direction") == opposite:
+            text = _concise_fact(row.get("text"), limit=96)
+            if text:
+                risks.append(f"若{text}继续强化，期市速递主线需要降级或修正")
+    return risks[:limit]
+
+
+def _brief_title(asset: str, direction: str, evidence: list[dict[str, Any]]) -> str:
+    label = _brief_anchor_direction_label(direction)
+    first = next((item for item in evidence if item.get("direction") == direction), None) or (evidence[0] if evidence else {})
+    fact = _concise_fact(first.get("text"), limit=36) if first else ""
+    return f"{asset}{label}主线：{fact}" if fact else f"{asset}{label}主线"
+
+
+def build_brief_thesis_anchor(summary: dict[str, Any]) -> dict[str, Any]:
+    assets: dict[str, Any] = {}
+    for asset, detail in sorted((summary.get("detailed_analysis") or {}).items()):
+        if not isinstance(detail, dict):
+            continue
+        score = _score_from_summary(summary, str(asset), detail)
+        direction = _brief_anchor_direction(score)
+        evidence = _rank_anchor_evidence(_evidence_from_detail(detail), direction)
+        main_thesis = _summary_sentence(detail.get("fundamental_summary"), limit=360)
+        if not main_thesis and evidence:
+            main_thesis = "；".join(_concise_fact(item.get("text"), limit=90) for item in evidence[:3] if item.get("text"))
+        if not main_thesis:
+            continue
+        anchor_id = _hash_id("BRANCH", str(summary.get("date")), str(asset), main_thesis)
+        tracking_items = _tracking_from_detail(detail)
+        risks = _risk_items_from_evidence(evidence, direction)
+        assets[str(asset)] = {
+            "anchor_id": anchor_id,
+            "asset": str(asset),
+            "direction": direction,
+            "direction_label": _brief_anchor_direction_label(direction),
+            "source_sentiment_score": round(score, 2),
+            "thesis_title": _brief_title(str(asset), direction, evidence),
+            "main_thesis": main_thesis,
+            "key_evidence": evidence,
+            "tracking_items": tracking_items,
+            "risk_items": risks,
+            "invalidation_conditions": risks
+            or [f"若{str(asset)}新增实时信号与期市速递方向持续冲突，需人工复核主线有效性"],
+            "source_fields": sorted({str(item.get("source_field") or "") for item in evidence if item.get("source_field")}),
+        }
+    return {
+        "schema_version": "brief_thesis_anchor.v1",
+        "status": "candidate",
+        "report_date": summary.get("date"),
+        "generated_at": utc_now_iso(),
+        "source": "market_brief_and_commodity_summary_baseline",
+        "baseline_policy": "market_brief/commodity_summary remains the primary human-readable product; logic_chain is an incremental signal/evidence layer until human acceptance.",
+        "assets": assets,
+    }
+
+
+def _anchor_evidence_match(signal_text: str, anchor: dict[str, Any]) -> dict[str, Any] | None:
+    for item in anchor.get("key_evidence") or []:
+        if _similar(signal_text, str(item.get("text") or "")):
+            return item
+    if _similar(signal_text, str(anchor.get("main_thesis") or "")):
+        return {
+            "evidence_id": anchor.get("anchor_id"),
+            "source_field": "fundamental_summary",
+            "direction": anchor.get("direction"),
+            "text": anchor.get("main_thesis"),
+        }
+    return None
+
+
+def _signal_row(signal: dict[str, Any], *, relation: str, matched_anchor: dict[str, Any] | None = None) -> dict[str, Any]:
+    row = {
+        "signal_id": signal.get("factor_id"),
+        "relation": relation,
+        "direction": signal.get("direction"),
+        "source_field": signal.get("source_field"),
+        "text": signal.get("text"),
+        "confidence": signal.get("confidence"),
+        "scoring_role": signal.get("scoring_role"),
+        "merged_count": signal.get("merged_count"),
+    }
+    if matched_anchor:
+        row["matched_anchor_evidence_id"] = matched_anchor.get("evidence_id")
+        row["matched_anchor_source_field"] = matched_anchor.get("source_field")
+    return row
+
+
+def _classify_chain_against_anchor(chain: dict[str, Any], anchor: dict[str, Any] | None) -> dict[str, Any]:
+    if not anchor:
+        return {
+            "benchmark_relation": "new_signal_without_brief_anchor",
+            "inherited_signals": [],
+            "new_signals": [
+                _signal_row(signal, relation="new_signal_without_brief_anchor")
+                for signal in (chain.get("evidence") or [])
+                if signal.get("scoring_role") != "market_observation"
+            ],
+            "conflict_signals": [],
+            "pending_observations": [],
+        }
+    anchor_direction = str(anchor.get("direction") or "neutral")
+    opposite = _opposite_direction(anchor_direction)
+    inherited = []
+    new = []
+    conflicts = []
+    pending = []
+    for signal in chain.get("evidence") or []:
+        direction = str(signal.get("direction") or "neutral")
+        text = str(signal.get("text") or "")
+        matched_anchor = _anchor_evidence_match(text, anchor)
+        if signal.get("scoring_role") == "market_observation" or direction == "neutral":
+            pending.append(_signal_row(signal, relation="pending_observation", matched_anchor=matched_anchor))
+        elif opposite and direction == opposite:
+            conflicts.append(_signal_row(signal, relation="conflicts_with_brief_anchor", matched_anchor=matched_anchor))
+        elif matched_anchor:
+            inherited.append(_signal_row(signal, relation="inherits_brief_anchor", matched_anchor=matched_anchor))
+        else:
+            new.append(_signal_row(signal, relation="new_supporting_signal"))
+    for signal in chain.get("counter_evidence") or []:
+        if signal.get("scoring_role") == "market_observation":
+            pending.append(_signal_row(signal, relation="pending_counter_observation"))
+        else:
+            conflicts.append(_signal_row(signal, relation="counter_evidence"))
+
+    conflict_level = str(chain.get("conflict_level") or "none")
+    if conflict_level in {"medium", "high"}:
+        pending.append(
+            {
+                "relation": "pending_conflict_review",
+                "text": f"{chain.get('dimension_label')}维度内部多空证据冲突为{conflict_level}",
+                "dimension_id": chain.get("dimension_id"),
+            }
+        )
+
+    if conflicts and (inherited or new):
+        relation = "mixed_conflict_needs_review"
+    elif conflicts:
+        relation = "conflicts_with_baseline"
+    elif inherited or new:
+        relation = "supports_baseline"
+    else:
+        relation = "pending_observation"
+    return {
+        "benchmark_relation": relation,
+        "inherited_signals": inherited,
+        "new_signals": new,
+        "conflict_signals": conflicts,
+        "pending_observations": pending,
+    }
+
+
+def build_brief_logic_benchmark_map(
+    brief_thesis_anchor: dict[str, Any],
+    logic_chains: dict[str, Any],
+) -> dict[str, Any]:
+    anchor_assets = brief_thesis_anchor.get("assets") or {}
+    assets: dict[str, Any] = {}
+    for asset, payload in sorted((logic_chains.get("assets") or {}).items()):
+        if not isinstance(payload, dict):
+            continue
+        anchor = anchor_assets.get(asset)
+        chain_maps = []
+        inherited_count = 0
+        new_count = 0
+        conflict_count = 0
+        pending_count = 0
+        for chain in payload.get("logic_chains") or []:
+            if not isinstance(chain, dict):
+                continue
+            classified = _classify_chain_against_anchor(chain, anchor)
+            inherited_count += len(classified["inherited_signals"])
+            new_count += len(classified["new_signals"])
+            conflict_count += len(classified["conflict_signals"])
+            pending_count += len(classified["pending_observations"])
+            chain_maps.append(
+                {
+                    "chain_id": chain.get("chain_id"),
+                    "asset": asset,
+                    "dimension_id": chain.get("dimension_id"),
+                    "dimension_label": chain.get("dimension_label"),
+                    "dimension_score": chain.get("dimension_score"),
+                    "benchmark_relation": classified["benchmark_relation"],
+                    "inherited_brief_thesis": {
+                        "anchor_id": (anchor or {}).get("anchor_id"),
+                        "thesis_title": (anchor or {}).get("thesis_title"),
+                        "direction": (anchor or {}).get("direction"),
+                        "main_thesis": (anchor or {}).get("main_thesis"),
+                    }
+                    if anchor
+                    else None,
+                    "inherited_signals": classified["inherited_signals"],
+                    "new_signals": classified["new_signals"],
+                    "conflict_signals": classified["conflict_signals"],
+                    "pending_observations": classified["pending_observations"],
+                    "tracking_items": (anchor or {}).get("tracking_items") or [],
+                    "quality_gate": "logic_chain_incremental_layer_only",
+                }
+            )
+        if conflict_count:
+            asset_relation = "has_conflicts_needing_review"
+        elif inherited_count or new_count:
+            asset_relation = "supports_or_extends_brief"
+        elif pending_count:
+            asset_relation = "pending_observation"
+        else:
+            asset_relation = "no_dynamic_signal"
+        assets[asset] = {
+            "asset": asset,
+            "anchor_id": (anchor or {}).get("anchor_id"),
+            "asset_relation": asset_relation,
+            "stats": {
+                "logic_chain_count": len(chain_maps),
+                "inherited_signal_count": inherited_count,
+                "new_signal_count": new_count,
+                "conflict_signal_count": conflict_count,
+                "pending_observation_count": pending_count,
+            },
+            "chain_maps": chain_maps,
+        }
+    return {
+        "schema_version": "brief_logic_benchmark_map.v1",
+        "status": "candidate",
+        "report_date": brief_thesis_anchor.get("report_date") or logic_chains.get("report_date"),
+        "generated_at": utc_now_iso(),
+        "primary_display_contract": "market_brief_and_commodity_summary",
+        "logic_chain_role": "incremental_signal_evidence_skeleton",
+        "assets": assets,
+    }
+
+
+def _attach_brief_benchmark_map(
+    logic_chains: dict[str, Any],
+    benchmark_map: dict[str, Any],
+) -> dict[str, Any]:
+    benchmark_assets = benchmark_map.get("assets") or {}
+    for asset, payload in (logic_chains.get("assets") or {}).items():
+        if isinstance(payload, dict):
+            payload["brief_logic_benchmark_map"] = benchmark_assets.get(asset)
+    logic_chains["brief_logic_benchmark_map"] = {
+        "schema_version": benchmark_map.get("schema_version"),
+        "primary_display_contract": benchmark_map.get("primary_display_contract"),
+        "logic_chain_role": benchmark_map.get("logic_chain_role"),
+        "asset_count": len(benchmark_assets),
+    }
+    return logic_chains
+
+
 def _dimension_direction_view(score: float) -> str:
     if score > 0.25:
         return "支撑"
@@ -1880,6 +2245,9 @@ def build_logic_chain_bundle(
     dimension_scores = build_dimension_scores(summary, alignment)
     trade_theses = build_trade_theses(summary, dimension_scores, use_llm_for_thesis=use_llm_for_thesis)
     logic_chains = build_logic_chains(summary, alignment, dimension_scores, trade_theses)
+    brief_thesis_anchor = build_brief_thesis_anchor(summary)
+    brief_logic_benchmark_map = build_brief_logic_benchmark_map(brief_thesis_anchor, logic_chains)
+    logic_chains = _attach_brief_benchmark_map(logic_chains, brief_logic_benchmark_map)
     summary_llm = use_llm_for_thesis if use_llm_for_summary is None else use_llm_for_summary
     logic_summary = build_logic_summary(
         summary,
@@ -1895,6 +2263,8 @@ def build_logic_chain_bundle(
         "dimension_scores": dimension_scores,
         "trade_thesis": trade_theses,
         "logic_chains": logic_chains,
+        "brief_thesis_anchor": brief_thesis_anchor,
+        "brief_logic_benchmark_map": brief_logic_benchmark_map,
         "logic_summary": logic_summary,
         "framework_update_candidates": update_candidates,
         "framework_format_review": format_review,
@@ -1924,6 +2294,8 @@ def publish_logic_chain_bundle(
         "dimension_scores": target_dir / "dimension_scores.json",
         "trade_thesis": target_dir / "trade_thesis.json",
         "logic_chains": target_dir / "logic_chains.json",
+        "brief_thesis_anchor": target_dir / "brief_thesis_anchor.json",
+        "brief_logic_benchmark_map": target_dir / "brief_logic_benchmark_map.json",
         "logic_summary": target_dir / "logic_summary.json",
         "framework_update_candidates": target_dir / "framework_update_candidates.json",
         "framework_format_review": target_dir / "framework_format_review.json",
