@@ -26,6 +26,36 @@ pipelines:
       - candidate
       - machine_published
       - pending_review
+  framework_alignment:
+    reads:
+      - gold/reference_data
+      - gold/frameworks
+      - agent_workspace/candidates/frameworks
+    writes:
+      - candidates
+    allowed_states:
+      - candidate
+      - pending_review
+  opinion_radar:
+    reads:
+      - gold/reference_data
+    writes:
+      - agent_runs
+      - candidates
+    allowed_states:
+      - candidate
+      - pending_review
+  polymarket_daily:
+    writes:
+      - raw_objects
+      - raw_manifests
+      - agent_runs
+      - candidates
+      - review_packages
+      - indexes
+    allowed_states:
+      - candidate
+      - pending_review
   assistant_qa:
     writes:
       - agent_runs

@@ -1,0 +1,1 @@
+"""Polymarket daily hotspot agent."""
