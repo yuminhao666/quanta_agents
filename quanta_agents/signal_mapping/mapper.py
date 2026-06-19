@@ -834,9 +834,13 @@ def build_polymarket_event_definition_signal(
     settlement_rule: str,
     time_window: dict[str, Any],
     source_path: str = "",
+    source_url: str | None = None,
     created_at: str | None = None,
     theme_refs: list[dict[str, Any]] | None = None,
     asset_refs: list[dict[str, Any]] | None = None,
+    mapped_by: str = MAPPER_VERSION,
+    mapping_method: str = "polymarket_event_definition_hook.v1",
+    notes: str | None = None,
 ) -> dict[str, Any]:
     """Build the low-confidence Polymarket hook without changing polymarket runtime."""
     created = created_at or utc_now_iso()
@@ -857,6 +861,7 @@ def build_polymarket_event_definition_signal(
             "Polymarket",
             artifact_id=market_id,
             path=source_path or None,
+            url=source_url,
         ),
         "signal_kind": "event_definition",
         "asset_refs": asset_refs or [],
@@ -886,15 +891,15 @@ def build_polymarket_event_definition_signal(
             "time_window": market_time_window,
         },
         "mapping": {
-            "method": "polymarket_event_definition_hook.v1",
+            "method": mapping_method,
             "confidence": 0.25,
-            "mapped_by": MAPPER_VERSION,
+            "mapped_by": mapped_by,
             "requires_human_review_reason": "prediction-market prices are web-info event-definition observations, not truth probabilities.",
         },
         "human_review_required": True,
         "promotion_policy": "review_required",
         "expires_at": None,
-        "notes": "Polymarket is mapped only as a low-confidence event-definition signal.",
+        "notes": notes or "Polymarket is mapped only as a low-confidence event-definition signal.",
     }
 
 

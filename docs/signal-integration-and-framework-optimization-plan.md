@@ -240,6 +240,39 @@ research_reports canonical/evidence
 - 匹配策略是保守关键词/资产重叠，匹配失败时 fallback 自由聚类；后续可以加入跨报告频率、人工审核标签和语义匹配。
 - Polymarket runtime 暂未接入本轮 matcher，后续仍按 `web_info/event_definition/low_confidence_signal` 进入同一主题层。
 
+### WO-DEV-20260620-011 Polymarket signal mapper v1
+
+新增 `quanta_agents.signal_mapping.polymarket_mapper`，把 Polymarket 日报热点映射为 `research_signal.v1`，但不改 `polymarket_daily` runtime，也不写 gold：
+
+- CLI：`python -m quanta_agents.signal_mapping.polymarket_mapper`
+- 默认输入：
+  - `agent_workspace/candidates/polymarket_daily/latest/hotspots.json`
+  - `agent_workspace/candidates/polymarket_daily/latest/manifest.json`
+  - 可选固定 `theme_anchors.json`，用于复现主题锚匹配
+- 输出：
+  - `agent_workspace/candidates/signal_map/YYYY/MM/DD/CAND-SIGNAL-MAP-*/research_signals.json`
+  - `agent_workspace/candidates/signal_map/YYYY/MM/DD/CAND-SIGNAL-MAP-*/manifest.json`
+  - `agent_workspace/runs/signal_mapping/YYYY/MM/DD/RUN-*-POLYMARKET-SIGNAL-*/run_manifest.json`
+
+强约束：
+
+- 每个 Polymarket signal 必须是 `source_role=web_info`、`signal_kind=event_definition`、`confidence_label=low_confidence_signal`。
+- Polymarket 源字段 `primary_probability` 只能作为合约交易价格写入 `market_observation.price`；`market_observation.probability` 必须保持 `null`。
+- `market_observation` 必须保留 `price`、`spread`、`liquidity`、`liquidity_label`、`settlement_rule`、`time_window`。
+- 命中主题锚时只在 `theme_refs` 写 schema-safe 的 `{id,label,ref_type=theme}`；匹配详情写入 candidate set 的 `theme_anchor_matches`。
+- 未命中主题锚时保留 `theme_anchor_status=unanchored_theme_candidate` 注释，不能伪装成已被研报验证的主题。
+
+本轮真实样例：
+
+- `agent_workspace/candidates/signal_map/2026/06/19/CAND-SIGNAL-MAP-20260619-205904909795/research_signals.json`
+- `agent_workspace/runs/signal_mapping/2026/06/19/RUN-WO-DEV-20260620-011-POLYMARKET-SIGNAL-205904909795/run_manifest.json`
+- 生成 25 个 `research_signal`；其中 2 个锚定到研报主题，23 个保留为 unanchored 候选；schema validation passed。
+
+剩余风险：
+
+- 当前匹配仍是保守关键词/资产规则。US/Iran 这类事件如果研报主题只有“沪镍”等宽泛标题，不会强行锚定，避免把 prediction-market 事件误接到错误品种。
+- 后续需要跨报告重复主题归并和人工审核标签，才能提升 Polymarket 与研报主题的召回率。
+
 ## 5. 框架权重优化
 
 权重拆成四层，避免让短期新闻直接覆盖长期框架：
