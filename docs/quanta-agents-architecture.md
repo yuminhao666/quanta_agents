@@ -126,6 +126,7 @@ flowchart TD
 - `logic_chain` 不直接替代期市速递，而是作为实时新闻、研报增量、行情/基本面验证和 Polymarket 事件进入后的动态骨架。
 - 动态逻辑链必须输出 `brief_logic_benchmark_map`，说明每条动态主线继承了哪条期市速递主线、新增了哪些 signal、出现了哪些冲突。
 - 平台展示时先展示期市速递结论，再把动态逻辑链作为“新增证据、冲突、验证和跟踪”层叠加。
+- `brief_thesis_anchor`、`brief_logic_benchmark_map`、`research_signal` 和 `theme_anchor` 的 schema 源头在 `quanta_data/configs/schemas`；本仓新增生成器必须按这些 schema 校验。
 
 这能保留当前成品质量，同时为后续实时信息源处理留下可计算结构。详细方案见：[signal-integration-and-framework-optimization-plan.md](signal-integration-and-framework-optimization-plan.md)。
 

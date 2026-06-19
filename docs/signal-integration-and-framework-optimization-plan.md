@@ -162,6 +162,25 @@ research_reports canonical/evidence
 - 与 baseline 冲突的实时信号只进入 `conflict_signals`，并要求人工复核，不自动改写期市速递结论。
 - 只有当人类接受逻辑链叙事质量后，动态链才可升级为主展示候选。
 
+### WO-DEV-20260620-008 合同冻结
+
+`quanta_data` 已成为以下对象的 schema source of truth，`quanta_agents` 只消费或生成符合 schema 的对象，不在 runtime 内另造字段合同：
+
+| 对象 | Schema | `quanta_agents` 写入定位 |
+| --- | --- | --- |
+| `brief_thesis_anchor.v1` | `/Volumes/数字大脑/quanta_data/configs/schemas/brief_thesis_anchor.v1.schema.json` | `futures_daily` run 产物；必要时包装进 `agent_workspace/candidates/signal_map` |
+| `brief_logic_benchmark_map.v1` | `/Volumes/数字大脑/quanta_data/configs/schemas/brief_logic_benchmark_map.v1.schema.json` | `futures_daily` run 产物；平台只作为解释层读取 |
+| `research_signal.v1` | `/Volumes/数字大脑/quanta_data/configs/schemas/research_signal.v1.schema.json` | 后续 opinion radar、研报、行情/基本面、Polymarket、外部 agent 的统一中间对象 |
+| `theme_anchor.v1` | `/Volumes/数字大脑/quanta_data/configs/schemas/theme_anchor.v1.schema.json` | 后续研报反复主题、期市速递主线和新闻事件的主题生命周期对象 |
+
+实现约束：
+
+- `market_brief` 和 `commodity_summary` 的输出合同不在本阶段改变。
+- `brief_logic_benchmark_map` 中的冲突只进入解释层和人工复核，不自动改写期市速递结论。
+- `research_signal.source_role` 只能是 `news`、`research_report`、`market_data`、`fundamental_data`、`web_info`、`human`、`agent`。
+- Polymarket 只能生成 `source_role=web_info`、`signal_kind=event_definition`、`confidence_label=low_confidence_signal` 的低置信事件定义信号，必须保留 settlement rule、流动性、价差和时间窗口。
+- 新增 signal/theme 生成器时，验收命令必须包含 `quanta_data/configs/schemas/*.schema.json` 的 JSON Schema 校验。
+
 ## 5. 框架权重优化
 
 权重拆成四层，避免让短期新闻直接覆盖长期框架：
