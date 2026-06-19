@@ -181,6 +181,44 @@ research_reports canonical/evidence
 - Polymarket 只能生成 `source_role=web_info`、`signal_kind=event_definition`、`confidence_label=low_confidence_signal` 的低置信事件定义信号，必须保留 settlement rule、流动性、价差和时间窗口。
 - 新增 signal/theme 生成器时，验收命令必须包含 `quanta_data/configs/schemas/*.schema.json` 的 JSON Schema 校验。
 
+### WO-DEV-20260620-009 runtime mapper v1
+
+新增 `quanta_agents.signal_mapping`，第一版只做统一中间层的候选生成，不重构 `opinion_radar` 和 `polymarket_daily` runtime：
+
+- CLI：`quanta-signal-theme-map` / `python -m quanta_agents.signal_mapping.mapper`
+- 输入：
+  - `brief_thesis_anchor.json`
+  - `brief_logic_benchmark_map.json`
+  - WeChat canonical document
+  - WeChat `research_report_evidence_unit.v1`
+- 输出：
+  - `agent_workspace/candidates/signal_map/YYYY/MM/DD/CAND-SIGNAL-MAP-*/research_signals.json`
+  - `agent_workspace/candidates/theme_anchor/YYYY/MM/DD/CAND-THEME-ANCHOR-*/theme_anchors.json`
+  - `agent_workspace/runs/signal_mapping/YYYY/MM/DD/RUN-*/run_manifest.json`
+- 校验：
+  - `research_signal.v1.schema.json`
+  - `theme_anchor.v1.schema.json`
+
+映射策略：
+
+- 期市速递 baseline 生成 `market_brief_thesis` 类型的 `theme_anchor`，并生成 `thesis_support` signal。
+- `brief_logic_benchmark_map` 中的 inherited/new/conflict/pending 行分别转成 `thesis_support`、`thesis_conflict` 或 `agent_observation` signal。
+- WeChat evidence 生成 `source_role=research_report`、`signal_kind=theme_update` 的 signal，并按研报标题/章节/规则化主题名生成 `theme_anchor`。
+- 空标题或噪音标题不直接进入主题层，必须降噪成受控标题，例如“美联储政策转鹰”“美伊协议与霍尔木兹通航”。
+- Polymarket 只提供 hook：必须保持 `source_role=web_info`、`signal_kind=event_definition`、`confidence_label=low_confidence_signal`，并保留 settlement rule、价差、流动性和时间窗口。
+
+本轮真实样例：
+
+- `agent_workspace/candidates/signal_map/2026/06/18/CAND-SIGNAL-MAP-20260618-043125900501/research_signals.json`
+- `agent_workspace/candidates/theme_anchor/2026/06/18/CAND-THEME-ANCHOR-20260618-043125900501/theme_anchors.json`
+- `agent_workspace/runs/signal_mapping/2026/06/18/RUN-WO-DEV-20260620-009-SIGNAL-THEME-043125900501/run_manifest.json`
+
+剩余风险：
+
+- 当前 WeChat 映射仍是单报告内的主题候选，尚未做跨报告重复主题归并。
+- 部分研报栏目标题，如“贵金属”“国债期货”，仍需要下一步用 `theme_anchor` 生命周期和多来源重复出现频率做降噪。
+- Opinion radar 下一步只能消费这些 `theme_anchor` 做优先匹配；匹配失败时才允许 fallback 到自由聚类。
+
 ## 5. 框架权重优化
 
 权重拆成四层，避免让短期新闻直接覆盖长期框架：
