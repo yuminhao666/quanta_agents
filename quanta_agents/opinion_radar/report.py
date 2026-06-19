@@ -129,6 +129,10 @@ def _top_market_themes(snapshot: dict[str, Any], limit: int) -> list[dict[str, A
                 "flash_count": int(item.get("flash_count") or 0),
                 "important_count": int(item.get("important_count") or 0),
                 "varieties": varieties,
+                "theme_type": item.get("theme_type") or "",
+                "theme_anchor_refs": item.get("theme_anchor_refs") if isinstance(item.get("theme_anchor_refs"), list) else [],
+                "theme_anchor_match_method": item.get("theme_anchor_match_method") or "no_theme_anchor_match",
+                "anchoring_status": item.get("anchoring_status") or "unanchored_theme_candidate",
                 "top_flashes": [
                     {
                         "publish_time": flash.get("publish_time"),
@@ -232,6 +236,10 @@ def _dimension_briefs(payload: dict[str, Any], limit: int = 6) -> list[dict[str,
                     "heat": _safe_float(event.get("heat")),
                     "direction_score": _safe_float(event.get("direction_score")),
                     "consistency": event.get("consistency") or {},
+                    "theme_anchor_refs": event.get("theme_anchor_refs")
+                    if isinstance(event.get("theme_anchor_refs"), list)
+                    else [],
+                    "anchoring_status": event.get("anchoring_status") or "unanchored_theme_candidate",
                 }
             )
         dimensions.append(
@@ -242,6 +250,8 @@ def _dimension_briefs(payload: dict[str, Any], limit: int = 6) -> list[dict[str,
                 "heat": _safe_float(item.get("heat")),
                 "news_direction_score": _safe_float(item.get("news_direction_score")),
                 "consistency_counts": item.get("consistency_counts") or {},
+                "theme_anchor_refs": item.get("theme_anchor_refs") if isinstance(item.get("theme_anchor_refs"), list) else [],
+                "anchoring_status": item.get("anchoring_status") or "unanchored_theme_candidate",
                 "top_events": top_events,
             }
         )
@@ -413,6 +423,9 @@ def _asset_logic_rows(news_logic_payload: dict[str, Any], limit: int) -> list[di
                 if isinstance(assessment.get("quality_notes"), list)
                 else [],
                 "consistency_counts": payload.get("consistency_counts") or {},
+                "theme_anchor_refs": payload.get("theme_anchor_refs") if isinstance(payload.get("theme_anchor_refs"), list) else [],
+                "anchoring_status": payload.get("anchoring_status") or "unanchored_theme_candidate",
+                "theme_anchor_match_method": payload.get("theme_anchor_match_method") or "no_theme_anchor_match",
                 "dimensions": dimensions,
                 "evidence_events": evidence,
             }
@@ -434,6 +447,8 @@ def _logic_updates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "from_thesis": row["current_report_thesis"],
                 "updated_bias": row["updated_bias"],
                 "updated_logic": row["updated_logic"],
+                "theme_anchor_refs": row.get("theme_anchor_refs") or [],
+                "anchoring_status": row.get("anchoring_status") or "unanchored_theme_candidate",
                 "evidence_events": row["evidence_events"][:3],
                 "tracking_points": row["tracking_points"],
             }
@@ -464,6 +479,8 @@ def _alerts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "asset": row["asset"],
                 "title": f"{row['asset']}：{row['revision_label']}",
                 "message": row["updated_logic"],
+                "theme_anchor_refs": row.get("theme_anchor_refs") or [],
+                "anchoring_status": row.get("anchoring_status") or "unanchored_theme_candidate",
                 "evidence_events": row["evidence_events"][:2],
             }
         )
@@ -510,6 +527,9 @@ def build_market_radar_report(
             "news_logic_generated_at": news_logic.get("generated_at"),
             "logic_run": (news_logic.get("logic_context") or {}).get("run_dir", ""),
             "analysis_framework_ref": news_logic.get("analysis_framework_ref") or {},
+            "theme_anchor_context": news_logic.get("theme_anchor_context")
+            or snapshot.get("theme_anchor_context")
+            or {},
         },
         "summary": summary,
         "market_pulse": {

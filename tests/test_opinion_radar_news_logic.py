@@ -266,3 +266,125 @@ def test_news_logic_can_use_llm_asset_assessment(tmp_path, monkeypatch):
     assert assessment["method"] == "llm"
     assert assessment["relation_to_report"] == "supports"
     assert result["stats"]["llm_assessment_count"] == 1
+
+
+def test_news_logic_anchors_events_to_theme_anchor_candidates(tmp_path, monkeypatch):
+    taxonomy_path = tmp_path / "taxonomy.json"
+    taxonomy_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "asset_taxonomy.v1",
+                "assets": [
+                    {
+                        "asset_id": "FUT-SC",
+                        "canonical_name": "原油",
+                        "commodity_code": "SC",
+                        "aliases": ["原油", "霍尔木兹", "OPEC"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    framework_dir = tmp_path / "data_lake/active_knowledge/research_frameworks/commodities"
+    framework_dir.mkdir(parents=True)
+    (framework_dir / "futures.INE.crude_oil.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "research_framework.v1",
+                "artifact_type": "research_framework",
+                "framework_id": "fw_futures_ine_crude_oil",
+                "asset_id": "futures.INE.crude_oil",
+                "standard_name": "原油",
+                "generic_name": "原油",
+                "status": "active",
+                "core_dimensions": [
+                    {
+                        "dimension_id": "geo",
+                        "dimension_name": "地缘政治",
+                        "dimension_type": "geopolitics",
+                        "typical_indicators": ["地缘风险溢价", "海峡通行量"],
+                        "typical_events": ["海峡封锁/通航恢复"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    theme_path = (
+        tmp_path
+        / "agent_workspace/candidates/theme_anchor/2026/06/18/"
+        "CAND-THEME-ANCHOR-OIL/theme_anchors.json"
+    )
+    write_json(
+        theme_path,
+        {
+            "schema_version": "theme_anchor_candidate_set.v1",
+            "status": "candidate",
+            "candidate_id": "CAND-THEME-ANCHOR-OIL",
+            "theme_anchors": [
+                {
+                    "schema_version": "theme_anchor.v1",
+                    "theme_anchor_id": "THA-OIL-GEO",
+                    "status": "candidate",
+                    "title": "原油地缘风险缓和",
+                    "description": "霍尔木兹航运恢复，原油风险溢价回吐。",
+                    "anchor_kind": "research_report_repeated_theme",
+                    "theme_type": "geopolitics",
+                    "source_roles": ["research_report"],
+                    "asset_refs": [{"id": "FUT-SC", "label": "原油", "ref_type": "asset"}],
+                    "source_refs": [],
+                    "aliases": ["霍尔木兹通航恢复"],
+                    "event_definition_layers": {
+                        "fact_layer": "霍尔木兹航运恢复，原油风险溢价回吐。",
+                        "political_layer": "霍尔木兹航运恢复。",
+                        "time_window_layer": "2026-06-18 research report window",
+                        "settlement_rule_layer": None,
+                    },
+                    "lifecycle": {
+                        "support_count": 2,
+                        "conflict_count": 0,
+                        "review_state": "machine_candidate",
+                    },
+                    "promotion_policy": "review_required",
+                }
+            ],
+        },
+    )
+    monkeypatch.setenv("GJ_ASSET_TAXONOMY_PATH", str(taxonomy_path))
+    flashes = [
+        {
+            "flash_id": "oil-anchored",
+            "publish_time": "2026-06-18 09:00:00",
+            "important": 1,
+            "title": "霍尔木兹航运恢复，原油风险溢价回吐",
+            "content": "中东局势缓和。",
+        },
+        {
+            "flash_id": "oil-unanchored",
+            "publish_time": "2026-06-18 09:30:00",
+            "important": 1,
+            "title": "OPEC讨论增产配额，原油供应预期变化",
+            "content": "该主题暂未出现在研报候选锚点中。",
+        },
+    ]
+
+    result = build_news_logic_radar(
+        flashes,
+        tmp_path,
+        date_key="20260618",
+        theme_anchor_path=theme_path,
+    )
+
+    anchored = next(event for event in result["events"] if event["flash_id"] == "oil-anchored")
+    unanchored = next(event for event in result["events"] if event["flash_id"] == "oil-unanchored")
+    assert anchored["anchoring_status"] == "anchored_theme"
+    assert anchored["theme_anchor_refs"][0]["id"] == "THA-OIL-GEO"
+    assert anchored["matched_theme_title"] == "原油地缘风险缓和"
+    assert unanchored["anchoring_status"] == "unanchored_theme_candidate"
+    assert unanchored["theme_anchor_refs"] == []
+    assert result["assets"]["原油"]["theme_anchor_refs"][0]["id"] == "THA-OIL-GEO"
+    assert result["stats"]["theme_anchor_match_count"] == 1
+    assert result["stats"]["unanchored_event_count"] == 1

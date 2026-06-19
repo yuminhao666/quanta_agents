@@ -217,7 +217,28 @@ research_reports canonical/evidence
 
 - 当前 WeChat 映射仍是单报告内的主题候选，尚未做跨报告重复主题归并。
 - 部分研报栏目标题，如“贵金属”“国债期货”，仍需要下一步用 `theme_anchor` 生命周期和多来源重复出现频率做降噪。
-- Opinion radar 下一步只能消费这些 `theme_anchor` 做优先匹配；匹配失败时才允许 fallback 到自由聚类。
+
+### WO-DEV-20260620-010 opinion radar anchoring v1
+
+`opinion_radar` 的主题生成顺序改为：
+
+1. 读取 `agent_workspace/candidates/theme_anchor/**/theme_anchors.json`，或使用 CLI/API 传入的固定 theme anchor candidate set。
+2. `service.snapshot` 对快讯 bucket 先做 theme_anchor 匹配；命中时用 anchor 标题作为主题主名，原自由聚类名保留为 `free_theme`。
+3. `news_logic` 对每条 asset/framework event 先做 theme_anchor 匹配，再聚合到 dimension 和 asset。
+4. 未命中的主题或事件必须标记为 `anchoring_status=unanchored_theme_candidate`，继续作为自由候选而不是伪装成研报已验证主题。
+5. 命中的对象必须输出 `theme_anchor_refs`、`theme_anchor_match_method`、`theme_type`，并保留 `promotion_policy=review_required` 与 `review_state=machine_candidate`。
+
+当前输出位置不变：
+
+- `agent_workspace/candidates/opinion_radar/latest/radar.json`
+- `agent_workspace/candidates/opinion_radar/news_logic/latest/news-logic.json`
+- `agent_workspace/candidates/opinion_radar/reports/latest/market-radar-report.json`
+
+治理边界：
+
+- `theme_anchor` 仍是 candidate，不是 gold。Radar 只能引用它做主题锚定和候选印证，不能自动晋级正式知识。
+- 匹配策略是保守关键词/资产重叠，匹配失败时 fallback 自由聚类；后续可以加入跨报告频率、人工审核标签和语义匹配。
+- Polymarket runtime 暂未接入本轮 matcher，后续仍按 `web_info/event_definition/low_confidence_signal` 进入同一主题层。
 
 ## 5. 框架权重优化
 

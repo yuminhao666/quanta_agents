@@ -4,6 +4,12 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
+from quanta_agents.signal_mapping.theme_anchor_matcher import (
+    ThemeAnchorIndex,
+    load_theme_anchor_index,
+    theme_anchor_ref,
+)
+
 from . import config, db, dictionary, filters, llm
 
 
@@ -63,6 +69,64 @@ def _item_rank(flash: dict[str, Any]) -> tuple[int, int, int, int, str]:
     )
 
 
+def _theme_anchor_context(
+    bucket: dict[str, Any],
+    naming: dict[str, Any],
+    titles: list[str],
+) -> str:
+    return " ".join(
+        str(item or "")
+        for item in [
+            bucket.get("label"),
+            bucket.get("kind"),
+            naming.get("theme"),
+            naming.get("summary"),
+            naming.get("logic"),
+            " ".join(titles[:8]),
+        ]
+    )
+
+
+def _anchor_theme(
+    bucket: dict[str, Any],
+    naming: dict[str, Any],
+    titles: list[str],
+    theme_index: ThemeAnchorIndex,
+) -> dict[str, Any]:
+    asset_labels = [str(bucket.get("label") or ""), *(str(item) for item in bucket.get("varieties") or [])]
+    match = theme_index.best_match(
+        _theme_anchor_context(bucket, naming, titles),
+        asset_labels=asset_labels,
+    )
+    if not match:
+        return {
+            "theme_anchor_refs": [],
+            "theme_anchor_match_method": "no_theme_anchor_match",
+            "anchoring_status": "unanchored_theme_candidate",
+            "theme_type": "",
+            "anchored_theme_title": "",
+        }
+    return {
+        "theme_anchor_refs": [theme_anchor_ref(match)],
+        "theme_anchor_match_method": match["match_method"],
+        "anchoring_status": "anchored_theme",
+        "theme_type": match.get("theme_type") or "",
+        "anchored_theme_title": match.get("title") or "",
+    }
+
+
+def _dedupe_theme_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen = set()
+    out = []
+    for ref in refs:
+        ref_id = str(ref.get("id") or "")
+        if not ref_id or ref_id in seen:
+            continue
+        seen.add(ref_id)
+        out.append(ref)
+    return out
+
+
 def _window(date: str | None, hours: int) -> tuple[datetime, datetime, str]:
     if date:
         start = datetime.strptime(date, "%Y-%m-%d")
@@ -71,10 +135,19 @@ def _window(date: str | None, hours: int) -> tuple[datetime, datetime, str]:
     return end - timedelta(hours=hours), end + timedelta(seconds=1), "rolling"
 
 
-def snapshot(date: str | None = None, hours: int = 24, top: int = 18, name_llm: bool = True) -> dict[str, Any]:
+def snapshot(
+    date: str | None = None,
+    hours: int = 24,
+    top: int = 18,
+    name_llm: bool = True,
+    *,
+    root: str | None = None,
+    theme_anchor_path: str | None = None,
+) -> dict[str, Any]:
     start, end, mode = _window(date, hours)
     raw_flashes = db.fetch_flashes(start, end)
     flashes = [flash for flash in raw_flashes if filters.keep_flash(flash)]
+    theme_index = load_theme_anchor_index(root, candidate_path=theme_anchor_path)
 
     buckets: dict[str, dict[str, Any]] = {}
     for flash in flashes:
@@ -127,15 +200,23 @@ def snapshot(date: str | None = None, hours: int = 24, top: int = 18, name_llm: 
             if name_llm
             else {"theme": bucket["label"], "summary": titles[0][:40] if titles else "", "logic": "", "source": "off"}
         )
+        anchor = _anchor_theme(bucket, naming, titles, theme_index)
+        free_theme = naming["theme"]
+        display_theme = anchor["anchored_theme_title"] or free_theme
         themes.append(
             {
                 "key": bucket["key"],
                 "label": bucket["label"],
                 "kind": bucket["kind"],
-                "theme": naming["theme"],
+                "theme": display_theme,
+                "free_theme": free_theme,
                 "summary": naming["summary"],
                 "logic": naming.get("logic") or naming["summary"],
                 "naming_source": naming["source"],
+                "theme_type": anchor["theme_type"],
+                "theme_anchor_refs": anchor["theme_anchor_refs"],
+                "theme_anchor_match_method": anchor["theme_anchor_match_method"],
+                "anchoring_status": anchor["anchoring_status"],
                 "heat": round(bucket["heat"], 1),
                 "flash_count": bucket["flash_count"],
                 "important_count": bucket["important_count"],
@@ -170,6 +251,17 @@ def snapshot(date: str | None = None, hours: int = 24, top: int = 18, name_llm: 
             "theme_count": len(synthesis) or len(ranked),
             "bucket_count": len(ranked),
             "variety_covered": len({variety for bucket in ranked for variety in bucket["varieties"]}),
+            "theme_anchor_source_count": theme_index.anchor_count,
+            "anchored_theme_count": sum(1 for theme in themes if theme["anchoring_status"] == "anchored_theme"),
+            "unanchored_theme_count": sum(
+                1 for theme in themes if theme["anchoring_status"] == "unanchored_theme_candidate"
+            ),
+        },
+        "theme_anchor_context": {
+            "candidate_ids": theme_index.candidate_ids,
+            "source_paths": theme_index.source_paths,
+            "anchor_count": theme_index.anchor_count,
+            "policy": "candidate_theme_anchors_are_review_required_not_gold",
         },
         "synthesis": synthesis,
         "themes": themes,
@@ -196,9 +288,20 @@ def _synthesize(themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 if url not in seen_urls:
                     seen_urls.add(url)
                     flashes.append(flash)
+        theme_refs = _dedupe_theme_refs(
+            [
+                ref
+                for member in members
+                for ref in (member.get("theme_anchor_refs") or [])
+                if isinstance(ref, dict)
+            ]
+        )
+        primary_ref = theme_refs[0] if theme_refs else {}
+        free_title = item["title"]
         out.append(
             {
-                "title": item["title"],
+                "title": primary_ref.get("label") or free_title,
+                "free_title": free_title,
                 "summary": item["summary"],
                 "heat": round(sum(value["heat"] for value in members), 1),
                 "flash_count": sum(value["flash_count"] for value in members),
@@ -207,6 +310,10 @@ def _synthesize(themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "kinds": sorted({value["kind"] for value in members}),
                 "varieties": sorted({variety for value in members for variety in value["varieties"]}),
                 "top_flashes": flashes[:8],
+                "theme_type": primary_ref.get("theme_type") or "",
+                "theme_anchor_refs": theme_refs,
+                "theme_anchor_match_method": "synthesis_member_theme_anchor" if theme_refs else "no_theme_anchor_match",
+                "anchoring_status": "anchored_theme" if theme_refs else "unanchored_theme_candidate",
             }
         )
     return sorted(out, key=lambda value: value["heat"], reverse=True)

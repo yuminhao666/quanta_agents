@@ -37,12 +37,20 @@ def build_payload(
     timeline_days: int = 7,
     timeline_top: int = 8,
     now: datetime | None = None,
+    root: str | Path | None = None,
+    theme_anchor_path: str | Path | None = None,
 ) -> dict[str, Any]:
     generated_at = now or datetime.now()
     snapshots = {}
     for hours in windows:
         print(f"  计算窗口 {hours}h{'（LLM命名）' if use_llm else ''} ...")
-        snapshots[str(hours)] = service.snapshot(hours=hours, top=top, name_llm=use_llm)
+        snapshots[str(hours)] = service.snapshot(
+            hours=hours,
+            top=top,
+            name_llm=use_llm,
+            root=root,
+            theme_anchor_path=str(theme_anchor_path) if theme_anchor_path else None,
+        )
     print("  计算时间线 ...")
     timeline = service.timeline(days=timeline_days, top=timeline_top)
     health = db.ping()
@@ -74,9 +82,11 @@ def export_to_quanta(
     timeline_top: int = 8,
     include_news_logic: bool = True,
     include_report: bool = True,
+    theme_anchor_path: str | Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     generated_at = now or datetime.now()
+    root_path = quanta_data_root(root)
     payload = build_payload(
         windows=windows,
         use_llm=use_llm,
@@ -84,14 +94,16 @@ def export_to_quanta(
         timeline_days=timeline_days,
         timeline_top=timeline_top,
         now=generated_at,
+        root=root_path,
+        theme_anchor_path=theme_anchor_path,
     )
-    root_path = quanta_data_root(root)
     news_logic_result = None
     if include_news_logic:
         try:
             news_logic_result = news_logic.publish_news_logic_radar(
                 root_path,
                 hours=max(windows) if windows else 24,
+                theme_anchor_path=theme_anchor_path,
                 use_llm_assessment=use_llm,
             )
             payload["news_logic"] = {
@@ -211,6 +223,10 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Do not build market radar report.",
     )
+    parser.add_argument(
+        "--theme-anchor-path",
+        help="Path to a theme_anchor candidate set or candidate directory.",
+    )
     parser.add_argument("--quanta-root", help="Override GJ_QUANTA_DATA_ROOT.")
     args = parser.parse_args(argv)
 
@@ -223,6 +239,7 @@ def main(argv: list[str] | None = None) -> None:
         timeline_top=args.timeline_top,
         include_news_logic=not args.skip_news_logic,
         include_report=not args.skip_report,
+        theme_anchor_path=args.theme_anchor_path,
     )
     print("-" * 56)
     for hours, snapshot in result["payload"]["windows"].items():

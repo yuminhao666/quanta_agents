@@ -17,6 +17,11 @@ from quanta_agents.core.llm_client import chat
 from quanta_agents.core.llm_json import parse_json_object
 from quanta_agents.core.taxonomy import load_asset_taxonomy
 from quanta_agents.futures_daily.framework_alignment import _match_framework_node
+from quanta_agents.signal_mapping.theme_anchor_matcher import (
+    ThemeAnchorIndex,
+    load_theme_anchor_index,
+    theme_anchor_ref,
+)
 
 from . import db, filters
 
@@ -167,7 +172,71 @@ def _asset_framework_map(text: str, root: str | Path | None = None) -> list[dict
     return out
 
 
-def map_flash_to_events(flash: dict[str, Any], root: str | Path | None = None) -> list[dict[str, Any]]:
+def _event_theme_anchor(
+    text: str,
+    mapped: dict[str, Any],
+    theme_index: ThemeAnchorIndex,
+) -> dict[str, Any]:
+    framework_node = mapped.get("framework_node") or {}
+    match = theme_index.best_match(
+        " ".join(
+            str(item or "")
+            for item in [
+                mapped.get("asset"),
+                mapped.get("asset_id"),
+                framework_node.get("dimension_label"),
+                framework_node.get("label"),
+                text,
+            ]
+        ),
+        asset_labels=[
+            str(mapped.get("asset") or ""),
+            str(mapped.get("asset_id") or ""),
+            str(framework_node.get("dimension_label") or ""),
+        ],
+    )
+    if not match:
+        return {
+            "theme_anchor_refs": [],
+            "theme_anchor_match_method": "no_theme_anchor_match",
+            "anchoring_status": "unanchored_theme_candidate",
+            "theme_type": "",
+            "matched_theme_title": "",
+        }
+    return {
+        "theme_anchor_refs": [theme_anchor_ref(match)],
+        "theme_anchor_match_method": match["match_method"],
+        "anchoring_status": "anchored_theme",
+        "theme_type": match.get("theme_type") or "",
+        "matched_theme_title": match.get("title") or "",
+    }
+
+
+def _dedupe_theme_refs(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen = set()
+    refs = []
+    for event in events:
+        for ref in event.get("theme_anchor_refs") or []:
+            if not isinstance(ref, dict):
+                continue
+            ref_id = str(ref.get("id") or "")
+            if not ref_id or ref_id in seen:
+                continue
+            seen.add(ref_id)
+            refs.append(ref)
+    return refs
+
+
+def _anchoring_status(events: list[dict[str, Any]]) -> str:
+    return "anchored_theme" if _dedupe_theme_refs(events) else "unanchored_theme_candidate"
+
+
+def map_flash_to_events(
+    flash: dict[str, Any],
+    root: str | Path | None = None,
+    *,
+    theme_anchor_index: ThemeAnchorIndex | None = None,
+) -> list[dict[str, Any]]:
     text = _display_text(flash)
     if not text:
         return []
@@ -175,8 +244,10 @@ def map_flash_to_events(flash: dict[str, Any], root: str | Path | None = None) -
     important = int(flash.get("important") or 0)
     flash_id = _flash_key(flash, text)
     events = []
+    theme_index = theme_anchor_index or load_theme_anchor_index(root)
     for mapped in _asset_framework_map(text, root):
         confidence = float(mapped["match"]["confidence"])
+        anchor = _event_theme_anchor(text, mapped, theme_index)
         events.append(
             {
                 "event_id": _hash_id("NLOGIC", flash_id, mapped["asset"], mapped["framework_node"]["node_id"]),
@@ -193,6 +264,11 @@ def map_flash_to_events(flash: dict[str, Any], root: str | Path | None = None) -
                 "framework": mapped["framework"],
                 "framework_node": mapped["framework_node"],
                 "match": mapped["match"],
+                "theme_anchor_refs": anchor["theme_anchor_refs"],
+                "theme_anchor_match_method": anchor["theme_anchor_match_method"],
+                "anchoring_status": anchor["anchoring_status"],
+                "theme_type": anchor["theme_type"],
+                "matched_theme_title": anchor["matched_theme_title"],
             }
         )
     return events
@@ -330,16 +406,18 @@ def build_news_logic_radar(
     *,
     logic_run: str | Path | None = None,
     date_key: str | None = None,
+    theme_anchor_path: str | Path | None = None,
     use_llm_assessment: bool = False,
     llm_asset_limit: int = 80,
 ) -> dict[str, Any]:
     root_path = quanta_data_root(root)
     logic_context = _load_logic_context(root_path, logic_run, date_key)
+    theme_index = load_theme_anchor_index(root_path, candidate_path=theme_anchor_path, date_key=date_key)
     events = []
     for flash in flashes:
         if not filters.keep_flash(flash):
             continue
-        for event in map_flash_to_events(flash, root_path):
+        for event in map_flash_to_events(flash, root_path, theme_anchor_index=theme_index):
             event["consistency"] = _consistency(event, logic_context)
             events.append(event)
 
@@ -364,6 +442,9 @@ def build_news_logic_radar(
                     "heat": round(heat, 3),
                     "news_direction_score": round(directional / max(heat, 1e-6), 3),
                     "consistency_counts": dict(Counter(event["consistency"]["status"] for event in dim_events)),
+                    "theme_anchor_refs": _dedupe_theme_refs(dim_events),
+                    "anchoring_status": _anchoring_status(dim_events),
+                    "theme_anchor_match_method": "event_theme_anchor_rollup",
                     "top_events": sorted(dim_events, key=lambda item: item["heat"], reverse=True)[:8],
                 }
             )
@@ -378,6 +459,9 @@ def build_news_logic_radar(
                 3,
             ),
             "consistency_counts": dict(Counter(event["consistency"]["status"] for event in asset_events)),
+            "theme_anchor_refs": _dedupe_theme_refs(asset_events),
+            "anchoring_status": _anchoring_status(asset_events),
+            "theme_anchor_match_method": "event_theme_anchor_rollup",
             "linked_trade_thesis": _asset_context(logic_context, asset)["thesis"],
             "dimensions": sorted(dimensions, key=lambda item: item["heat"], reverse=True),
         }
@@ -401,9 +485,16 @@ def build_news_logic_radar(
         "generated_at": utc_now_iso(),
         "logic_context": {"run_dir": logic_context.get("run_dir", "")},
         "analysis_framework_ref": latest_analysis_framework_refs(root_path),
+        "theme_anchor_context": {
+            "candidate_ids": theme_index.candidate_ids,
+            "source_paths": theme_index.source_paths,
+            "anchor_count": theme_index.anchor_count,
+            "policy": "candidate_theme_anchors_are_review_required_not_gold",
+        },
         "semantic_layer": {
             "asset_assessment_method": "llm" if use_llm_assessment else "rule_only",
             "llm_asset_limit": llm_asset_limit if use_llm_assessment else 0,
+            "theme_anchor_matching": "theme_anchor_first_then_unanchored_fallback",
         },
         "stats": {
             "flash_count": len(flashes),
@@ -411,6 +502,9 @@ def build_news_logic_radar(
             "mapped_event_count": len(events),
             "asset_count": len(by_asset),
             "framework_mapped_count": sum(1 for event in events if event["framework"].get("framework_id")),
+            "theme_anchor_source_count": theme_index.anchor_count,
+            "theme_anchor_match_count": sum(1 for event in events if event.get("theme_anchor_refs")),
+            "unanchored_event_count": sum(1 for event in events if not event.get("theme_anchor_refs")),
             "consistency_counts": dict(Counter(event["consistency"]["status"] for event in events)),
             "llm_assessment_count": sum(1 for item in llm_assessments if item.get("method") == "llm"),
             "llm_relation_counts": dict(Counter(str(item.get("relation_to_report") or "") for item in llm_assessments)),
@@ -436,6 +530,7 @@ def publish_news_logic_radar(
     date: str | None = None,
     hours: int = 24,
     logic_run: str | Path | None = None,
+    theme_anchor_path: str | Path | None = None,
     flashes: list[dict[str, Any]] | None = None,
     use_llm_assessment: bool = True,
     llm_asset_limit: int = 80,
@@ -450,6 +545,7 @@ def publish_news_logic_radar(
         root_path,
         logic_run=logic_run,
         date_key=logic_date_key,
+        theme_anchor_path=theme_anchor_path,
         use_llm_assessment=use_llm_assessment,
         llm_asset_limit=llm_asset_limit,
     )
@@ -467,6 +563,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--date", help="YYYY-MM-DD. If omitted, use latest rolling window.")
     parser.add_argument("--hours", type=int, default=24, help="Rolling window hours when --date is omitted.")
     parser.add_argument("--logic-run", help="Path to futures daily run dir with trade_thesis.json.")
+    parser.add_argument("--theme-anchor-path", help="Path to a theme_anchor candidate set or candidate directory.")
     parser.add_argument("--quanta-root", help="Override GJ_QUANTA_DATA_ROOT.")
     parser.add_argument("--no-llm-assessment", action="store_true", help="Skip LLM asset-level news/thesis assessment.")
     parser.add_argument("--llm-asset-limit", type=int, default=80, help="Maximum assets assessed by LLM.")
@@ -476,6 +573,7 @@ def main(argv: list[str] | None = None) -> None:
         date=args.date,
         hours=args.hours,
         logic_run=args.logic_run,
+        theme_anchor_path=args.theme_anchor_path,
         use_llm_assessment=not args.no_llm_assessment,
         llm_asset_limit=args.llm_asset_limit,
     )
