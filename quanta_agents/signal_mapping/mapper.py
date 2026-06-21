@@ -4,13 +4,14 @@ import argparse
 import hashlib
 import json
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from quanta_agents.core.config import quanta_data_root
 from quanta_agents.core.io import dated_parts, read_json, relative_to_root, utc_now_iso, write_json
+from quanta_agents.adapters import register_payload_if_enabled
 
 
 MAPPER_VERSION = "signal_theme_mapper.v1"
@@ -1163,6 +1164,9 @@ def run_signal_theme_mapping(
                 ],
             },
         )
+        register_payload_if_enabled(signal_payload, kind="research_signal", root=root_path, source_path=signal_file)
+        register_payload_if_enabled(theme_payload, kind="theme_anchor", root=root_path, source_path=theme_file)
+        register_payload_if_enabled(read_json(run_manifest), kind="run_manifest", root=root_path, source_path=run_manifest)
         paths = {
             "signal_candidate_dir": relative_to_root(signal_dir, root_path),
             "signal_manifest": relative_to_root(signal_manifest, root_path),

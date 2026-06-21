@@ -34,6 +34,13 @@ quanta-wechat-research-evidence = "quanta_agents.research_reports.wechat_evidenc
 quanta-wechat-canonical-evidence-bridge = "quanta_agents.research_reports.wechat_canonical_bridge:main"
 quanta-signal-theme-map = "quanta_agents.signal_mapping.mapper:main"
 quanta-polymarket-daily = "quanta_agents.polymarket_daily.export:main"
+quanta-catalog-init = "quanta_agents.catalog_cli:init_catalog"
+quanta-catalog-status = "quanta_agents.catalog_cli:catalog_status"
+quanta-catalog-register = "quanta_agents.catalog_cli:catalog_register"
+quanta-catalog-backfill = "quanta_agents.catalog_cli:catalog_backfill"
+quanta-topic-list = "quanta_agents.catalog_cli:topic_list"
+quanta-topic-show = "quanta_agents.catalog_cli:topic_show"
+quanta-topic-timeline = "quanta_agents.catalog_cli:topic_timeline"
 
 [project.optional-dependencies]
 crawler = [

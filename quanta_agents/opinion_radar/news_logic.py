@@ -16,6 +16,7 @@ from quanta_agents.core.io import dated_parts, read_json, utc_now_iso, write_jso
 from quanta_agents.core.llm_client import chat
 from quanta_agents.core.llm_json import parse_json_object
 from quanta_agents.core.taxonomy import load_asset_taxonomy
+from quanta_agents.adapters import register_payload_if_enabled
 from quanta_agents.futures_daily.framework_alignment import _match_framework_node
 from quanta_agents.signal_mapping.theme_anchor_matcher import (
     ThemeAnchorIndex,
@@ -555,6 +556,7 @@ def publish_news_logic_radar(
     latest_path = base / "latest" / "news-logic.json"
     write_json(archive_path, payload)
     write_json(latest_path, payload)
+    register_payload_if_enabled(payload, kind="news_logic", root=root_path, source_path=latest_path)
     return {"archive": str(archive_path), "latest": str(latest_path), "payload": payload}
 
 
