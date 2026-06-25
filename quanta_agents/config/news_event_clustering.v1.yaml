@@ -1,0 +1,24 @@
+schema_version: news_event_clustering_policy.v1
+score_weights:
+  subject_object_match: 0.22
+  action_match: 0.18
+  entity_overlap: 0.15
+  event_type_match: 0.10
+  location_match: 0.10
+  time_proximity: 0.10
+  semantic_similarity: 0.08
+  stage_compatibility: 0.04
+  source_reference_match: 0.03
+thresholds:
+  auto_same_event: 0.86
+  llm_pair_judge: 0.65
+  topic_auto_membership: 0.84
+  topic_llm_judge: 0.62
+retrieval:
+  lookback_days: 7
+  top_k: 20
+guardrails:
+  denial_contradicts_rumor: true
+  retraction_creates_relation: true
+  require_stage_compatibility_for_auto_same: true
+  independent_source_count_per_syndication_group: 1

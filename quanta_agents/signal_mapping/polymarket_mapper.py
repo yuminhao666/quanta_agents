@@ -105,8 +105,11 @@ def _market_spread(market: dict[str, Any]) -> float | None:
 def _question_text(market: dict[str, Any]) -> str:
     zh = _clean_text(market.get("question_zh"), limit=220)
     raw = _clean_text(market.get("question"), limit=220)
-    if zh and raw and zh != raw:
-        return f"{zh} / {raw}"
+    # Candidate titles should be a single display language. Keep the original
+    # English question in source_ref/url-backed artifacts rather than mixing it
+    # into the research signal fact layer.
+    if zh:
+        return zh
     return zh or raw or "Polymarket event definition"
 
 

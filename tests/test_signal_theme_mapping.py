@@ -307,12 +307,19 @@ def test_run_signal_theme_mapping_writes_candidate_sets(tmp_path: Path) -> None:
     assert result["status"] == "succeeded"
     assert result["signal_count"] == 1
     assert result["theme_anchor_count"] == 1
+    assert result["atomic_claim_count"] == 1
     signal_payload = read_json(tmp_path / result["paths"]["research_signals"])
     theme_payload = read_json(tmp_path / result["paths"]["theme_anchors"])
+    atomic_claim_payload = read_json(tmp_path / result["paths"]["atomic_claims"])
     run_manifest = read_json(tmp_path / result["paths"]["run_manifest"])
     assert signal_payload["signals"][0]["schema_version"] == "research_signal.v1"
     assert theme_payload["theme_anchors"][0]["schema_version"] == "theme_anchor.v1"
+    atomic_claim = atomic_claim_payload["atomic_claims"][0]
+    assert atomic_claim["schema_version"] == "atomic_claim.v1"
+    assert atomic_claim["source_evidence_id"] == "EVID-RREP-WECHAT-TEST"
+    assert atomic_claim["persistent_topic_refs"][0]["canonical_title"] == theme_payload["theme_anchors"][0]["title"]
     assert run_manifest["run_type"] == "signal_theme_mapper"
+    assert run_manifest["atomic_claim_count"] == 1
     assert run_manifest["human_review_required"] is True
 
 

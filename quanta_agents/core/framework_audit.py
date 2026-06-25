@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -58,6 +58,8 @@ DEFAULT_DIMENSION_WEIGHTS = {
     "substitution": 0.07,
     "logistics": 0.07,
     "seasonality": 0.06,
+    "disease": 0.08,
+    "capacity_cycle": 0.10,
     "other": 0.05,
 }
 
@@ -149,6 +151,19 @@ def _framework_issues(path: Path, fw: dict[str, Any], taxonomy_names: set[str]) 
         )
         return issues
 
+    embedded_term_count = sum(
+        len(dim.get("typical_indicators") or []) + len(dim.get("typical_events") or [])
+        for dim in dimensions
+    )
+    if embedded_term_count:
+        issues.append(
+            {
+                "code": "embedded_indicator_event_terms",
+                "severity": "medium",
+                "message": f"core_dimensions 内嵌 {embedded_term_count} 个指标/事件词条，建议迁移到独立 catalog 文件，framework 仅保留 catalog_refs。",
+            }
+        )
+
     seen_ids: set[str] = set()
     for dim in dimensions:
         dim_id = str(dim.get("dimension_id") or "")
@@ -208,6 +223,7 @@ def _optimized_dimension(dim: dict[str, Any]) -> dict[str, Any]:
     payload["dimension_type"] = norm_type
     payload.setdefault("default_weight", DEFAULT_DIMENSION_WEIGHTS.get(norm_type, DEFAULT_DIMENSION_WEIGHTS["other"]))
     payload.setdefault("weight_bounds", {"min": 0.0, "max": 0.35})
+    payload.setdefault("catalog_refs", [])
     payload.setdefault(
         "activation_rules",
         {
@@ -258,6 +274,22 @@ def _optimization_candidate(path: Path, fw: dict[str, Any], issues: list[dict[st
             "output_requirements": "输出结构化 JSON，保留证据文本，不编造未出现的信息。",
         }
     optimized.setdefault("evolution_policy", {"write_back": "human_review_required", "candidate_store": True})
+    optimized.setdefault(
+        "catalog_migration",
+        {
+            "status": "pending_split",
+            "source_fields": [
+                "core_dimensions.typical_indicators",
+                "core_dimensions.typical_events",
+            ],
+            "target_layout": [
+                "knowledge_base/catalogs/commodities/{asset_id}/indicators.v1.json",
+                "knowledge_base/catalogs/commodities/{asset_id}/event-triggers.v1.json",
+                "knowledge_base/catalogs/commodities/{asset_id}/claim-patterns.v1.json",
+            ],
+            "principle": "framework-core stores stable dimensions and catalog_refs; concrete indicators, event triggers, and report claim patterns live in catalog files.",
+        },
+    )
     return {
         "candidate_id": _hash_id("FWKOPT", framework_id, path.as_posix()),
         "candidate_type": "framework_schema_normalization",
@@ -267,7 +299,7 @@ def _optimization_candidate(path: Path, fw: dict[str, Any], issues: list[dict[st
         "source_path": str(path),
         "issue_count": len(issues),
         "issue_codes": dict(Counter(issue["code"] for issue in issues)),
-        "proposal_summary": "统一 schema/artifact_type，补齐维度权重、激活规则、打分规则、默认逻辑链和 prompt fragments。",
+        "proposal_summary": "统一 schema/artifact_type，补齐维度权重、激活规则、打分规则、默认逻辑链和 prompt fragments；将具体指标/事件词条迁移到独立 catalog。",
         "proposed_payload": optimized,
         "status": "candidate",
         "review_status": "pending_review",
@@ -326,6 +358,8 @@ def audit_active_frameworks(root: str | Path | None = None) -> dict[str, Any]:
             "core_dimensions.activation_rules": "近期研报/新闻/数据如何提高维度重要性。",
             "core_dimensions.scoring_rules": "证据方向、强度、置信度和时间衰减规则。",
             "logic_templates": "品种逻辑链模板，表达事件/数据到价格的传导。",
+            "core_dimensions.catalog_refs": "维度引用的指标、事件和 claim catalog 文件。",
+            "catalog_migration": "将内嵌 typical_indicators/typical_events 拆分到独立 catalog 的迁移计划。",
             "evolution_policy": "候选如何审核、接受、写回 active framework。",
         },
         "frameworks": sorted(framework_rows, key=lambda row: row["issue_count"], reverse=True),

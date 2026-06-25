@@ -1,0 +1,167 @@
+{
+  "schema_version": "asset_event_state_demo_config.v1",
+  "selection": {
+    "preferred_asset": "铜",
+    "canonical_asset": "COPPER",
+    "asset_id": "FUT-CU",
+    "min_news": 50,
+    "max_news": 300,
+    "preferred_window_days": 3,
+    "fallback_window_days": 7,
+    "max_reports": 10,
+    "max_report_evidence": 80,
+    "max_propagation_depth": 4
+  },
+  "propagation": {
+    "depth_decay_base": 0.8,
+    "min_path_confidence_for_signal": 0.08,
+    "accepted_max_hops": 2
+  },
+  "driver_update": {
+    "persistence": 0.65,
+    "decay_half_life_hours": 72,
+    "source_weight": {
+      "news": 0.55,
+      "research_report": 0.35,
+      "fundamental_data": 0.75
+    },
+    "status_weight": {
+      "accepted": 1.0,
+      "low_confidence": 0.25,
+      "needs_review": 0.1
+    },
+    "duplication_penalty": {
+      "unique": 1.0,
+      "same_event_group": 0.5,
+      "duplicate": 0.15
+    }
+  },
+  "node_framework_map": {
+    "copper_visible_inventory_tightness": "FWK-CU-20260616::基本面/库存/全球显性库存",
+    "copper_supply_tightness": "FWK-CU-20260616::基本面/供给/海外铜矿",
+    "copper_supply_disruption": "FWK-CU-20260616::基本面/供给/海外铜矿",
+    "copper_processing_fee_pressure": "FWK-CU-20260616::基本面/成本利润/冶炼盈利与加工费",
+    "copper_demand_improvement": "FWK-CU-20260616::基本面/需求/终端消费板块",
+    "copper_demand_softness": "FWK-CU-20260616::宏观/海外经济/主要消费地区需求展望",
+    "copper_cross_market_tightness": "FWK-CU-20260616::金融属性/跨市场/关税与跨市物流重塑",
+    "copper_fund_flow": "FWK-CU-20260616::金融属性/持仓与资金/品种资金流向与存量",
+    "fed_hawkish_expectation": "FWK-CU-20260616::宏观/货币政策/美联储降息路径",
+    "global_liquidity_pressure": "FWK-CU-20260616::宏观/流动性/主要经济体货币政策外溢",
+    "copper_macro_valuation_pressure": "FWK-CU-20260616::宏观/流动性/主要经济体货币政策外溢",
+    "hormuz_shipping_disruption": "FWK-CU-20260616::地缘/资源国/主要产铜国供给稳定性",
+    "oil_supply_risk": "FWK-CU-20260616::宏观/汇率与商品/美元指数与人民币",
+    "energy_inflation_pressure": "FWK-CU-20260616::宏观/流动性/主要经济体货币政策外溢",
+    "copper_price_support": "FWK-CU-20260616::金融属性/跨市场/内外盘比价与汇率",
+    "copper_price_pressure": "FWK-CU-20260616::金融属性/跨市场/内外盘比价与汇率"
+  },
+  "causal_edges": [
+    {
+      "from_node": "hormuz_shipping_disruption",
+      "to_node": "oil_supply_risk",
+      "polarity": 1,
+      "edge_weight": 0.9,
+      "confidence": 0.85,
+      "delay_hint": "hours_to_days",
+      "assumption": "霍尔木兹运输扰动先影响能源供应风险。"
+    },
+    {
+      "from_node": "oil_supply_risk",
+      "to_node": "energy_inflation_pressure",
+      "polarity": 1,
+      "edge_weight": 0.75,
+      "confidence": 0.72,
+      "delay_hint": "days",
+      "assumption": "油价风险会通过能源价格抬升通胀预期。"
+    },
+    {
+      "from_node": "energy_inflation_pressure",
+      "to_node": "global_liquidity_pressure",
+      "polarity": 1,
+      "edge_weight": 0.68,
+      "confidence": 0.65,
+      "delay_hint": "days_to_weeks",
+      "assumption": "通胀预期上行会降低降息空间并压制流动性。"
+    },
+    {
+      "from_node": "global_liquidity_pressure",
+      "to_node": "copper_macro_valuation_pressure",
+      "polarity": -1,
+      "edge_weight": 0.62,
+      "confidence": 0.62,
+      "delay_hint": "days_to_weeks",
+      "assumption": "流动性收紧对铜的金融属性和估值偏负面。"
+    },
+    {
+      "from_node": "fed_hawkish_expectation",
+      "to_node": "global_liquidity_pressure",
+      "polarity": 1,
+      "edge_weight": 0.88,
+      "confidence": 0.86,
+      "delay_hint": "hours_to_days",
+      "assumption": "鹰派利率预期直接压制风险偏好和流动性。"
+    },
+    {
+      "from_node": "copper_visible_inventory_tightness",
+      "to_node": "copper_supply_tightness",
+      "polarity": 1,
+      "edge_weight": 0.72,
+      "confidence": 0.78,
+      "delay_hint": "same_day",
+      "assumption": "交易所显性库存下降可作为短期可用供给偏紧的证据。"
+    },
+    {
+      "from_node": "copper_supply_tightness",
+      "to_node": "copper_price_support",
+      "polarity": 1,
+      "edge_weight": 0.7,
+      "confidence": 0.72,
+      "delay_hint": "hours_to_days",
+      "assumption": "供应偏紧通常对铜价形成支撑，但会受宏观因素抵消。"
+    },
+    {
+      "from_node": "copper_supply_disruption",
+      "to_node": "copper_supply_tightness",
+      "polarity": 1,
+      "edge_weight": 0.82,
+      "confidence": 0.8,
+      "delay_hint": "same_day",
+      "assumption": "发运中断或矿端扰动提高供应偏紧概率。"
+    },
+    {
+      "from_node": "copper_processing_fee_pressure",
+      "to_node": "copper_supply_tightness",
+      "polarity": 1,
+      "edge_weight": 0.66,
+      "confidence": 0.68,
+      "delay_hint": "days_to_weeks",
+      "assumption": "TC 深度负值说明矿端紧张，但传导到精铜产量需要时间。"
+    },
+    {
+      "from_node": "copper_demand_improvement",
+      "to_node": "copper_price_support",
+      "polarity": 1,
+      "edge_weight": 0.62,
+      "confidence": 0.62,
+      "delay_hint": "days_to_weeks",
+      "assumption": "终端需求改善会支撑铜价，但股票题材新闻需降权。"
+    },
+    {
+      "from_node": "copper_demand_softness",
+      "to_node": "copper_price_pressure",
+      "polarity": -1,
+      "edge_weight": 0.65,
+      "confidence": 0.68,
+      "delay_hint": "days_to_weeks",
+      "assumption": "需求偏弱对铜价形成压制。"
+    },
+    {
+      "from_node": "copper_cross_market_tightness",
+      "to_node": "copper_price_support",
+      "polarity": 1,
+      "edge_weight": 0.58,
+      "confidence": 0.6,
+      "delay_hint": "hours_to_days",
+      "assumption": "关税或跨市价差可短期支撑外盘与套利需求，持续性需验证。"
+    }
+  ]
+}

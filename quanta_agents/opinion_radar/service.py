@@ -98,6 +98,8 @@ def _anchor_theme(
         _theme_anchor_context(bucket, naming, titles),
         asset_labels=asset_labels,
     )
+    if match and not _anchor_scope_matches_bucket(bucket, match):
+        match = None
     if not match:
         return {
             "theme_anchor_refs": [],
@@ -113,6 +115,42 @@ def _anchor_theme(
         "theme_type": match.get("theme_type") or "",
         "anchored_theme_title": match.get("title") or "",
     }
+
+
+def _anchor_scope_matches_bucket(bucket: dict[str, Any], match: dict[str, Any]) -> bool:
+    """Keep a theme anchor from renaming a radar bucket outside its asset scope."""
+    kind = str(bucket.get("kind") or "")
+    if kind == "macro":
+        return not _anchor_asset_labels(match)
+    if kind != "variety":
+        return True
+    bucket_assets = {str(bucket.get("label") or ""), *(str(item) for item in bucket.get("varieties") or [])}
+    anchor_assets = _anchor_asset_labels(match)
+    return bool(bucket_assets & anchor_assets) if anchor_assets else True
+
+
+def _anchor_asset_labels(match: dict[str, Any]) -> set[str]:
+    labels: set[str] = set()
+    for ref in match.get("asset_refs") or []:
+        if not isinstance(ref, dict):
+            continue
+        label = str(ref.get("label") or "").strip()
+        if label:
+            labels.add(label)
+    return labels
+
+
+def _display_theme_title(bucket: dict[str, Any], free_theme: str, anchor: dict[str, Any]) -> str:
+    """Choose a card title that represents the bucket, not an over-broad anchor."""
+    if str(bucket.get("kind") or "") == "macro":
+        return free_theme
+    anchored = str(anchor.get("anchored_theme_title") or "").strip()
+    bucket_label = str(bucket.get("label") or "").strip()
+    if not anchored or not bucket_label:
+        return free_theme
+    if any(separator in anchored for separator in ("/", "、", "与", "和")) and bucket_label in anchored:
+        return free_theme
+    return anchored
 
 
 def _dedupe_theme_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -202,7 +240,7 @@ def snapshot(
         )
         anchor = _anchor_theme(bucket, naming, titles, theme_index)
         free_theme = naming["theme"]
-        display_theme = anchor["anchored_theme_title"] or free_theme
+        display_theme = _display_theme_title(bucket, free_theme, anchor)
         themes.append(
             {
                 "key": bucket["key"],
@@ -210,6 +248,7 @@ def snapshot(
                 "kind": bucket["kind"],
                 "theme": display_theme,
                 "free_theme": free_theme,
+                "anchored_theme_title": anchor["anchored_theme_title"],
                 "summary": naming["summary"],
                 "logic": naming.get("logic") or naming["summary"],
                 "naming_source": naming["source"],
@@ -300,7 +339,8 @@ def _synthesize(themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         free_title = item["title"]
         out.append(
             {
-                "title": primary_ref.get("label") or free_title,
+                "title": free_title,
+                "anchored_title": primary_ref.get("label") or "",
                 "free_title": free_title,
                 "summary": item["summary"],
                 "heat": round(sum(value["heat"] for value in members), 1),

@@ -615,18 +615,61 @@ def nap(delay: float, jitter: float) -> None:
         time.sleep(seconds)
 
 
-def load_backend(backend_path: Path) -> tuple[Any, Any]:
-    if str(backend_path) not in sys.path:
-        sys.path.insert(0, str(backend_path))
+def load_mysql_config(backend_path: Path) -> dict[str, Any]:
     try:
-        from quanta_backend.config import load_config
-        from quanta_backend.db import create_engine
+        import yaml
     except Exception as exc:  # pragma: no cover - environment diagnostic
-        raise IngestError(
-            f"Cannot import quanta_backend from {backend_path}. "
-            "Pass --backend-path to your local quanta_pro backend checkout."
-        ) from exc
-    return load_config, create_engine
+        raise IngestError("PyYAML is required to read quanta_pro config/config.yaml") from exc
+
+    candidates = [
+        backend_path / "config" / "config.yaml",
+        backend_path.parent / "config" / "config.yaml",
+    ]
+    config_path = next((path for path in candidates if path.exists()), None)
+    if not config_path:
+        searched = ", ".join(str(path) for path in candidates)
+        raise IngestError(f"Cannot find quanta_pro config/config.yaml. Searched: {searched}")
+
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    mysql = raw.get("mysql") if isinstance(raw, dict) else None
+    if not isinstance(mysql, dict):
+        raise IngestError(f"Missing mysql section in {config_path}")
+
+    required = ["host", "user", "database"]
+    missing = [key for key in required if not str(mysql.get(key, "")).strip()]
+    if missing:
+        raise IngestError(f"Missing mysql config keys: {', '.join(missing)}")
+    return {
+        "host": str(mysql.get("host")).strip(),
+        "port": int(mysql.get("port", 3306)),
+        "user": str(mysql.get("user")).strip(),
+        "password": str(mysql.get("password", "")),
+        "database": str(mysql.get("database")).strip(),
+        "charset": str(mysql.get("charset", "utf8mb4")).strip() or "utf8mb4",
+    }
+
+
+def connect_mysql(backend_path: Path) -> Any:
+    try:
+        import pymysql
+        import pymysql.cursors
+    except Exception as exc:  # pragma: no cover - environment diagnostic
+        raise IngestError("PyMySQL is required to read hzzhqx_reports") from exc
+
+    cfg = load_mysql_config(backend_path)
+    return pymysql.connect(
+        host=cfg["host"],
+        port=cfg["port"],
+        user=cfg["user"],
+        password=cfg["password"],
+        database=cfg["database"],
+        charset=cfg["charset"],
+        cursorclass=pymysql.cursors.DictCursor,
+        autocommit=True,
+        connect_timeout=10,
+        read_timeout=30,
+        write_timeout=30,
+    )
 
 
 def fetch_report_rows(
@@ -638,31 +681,29 @@ def fetch_report_rows(
     institution: str | None,
     order: str,
 ) -> list[ReportRow]:
-    load_config, create_engine = load_backend(backend_path)
-    import sqlalchemy as sa
-
     sql = """
         SELECT report_summary_id, publish_time, institution, category, title,
                link_type, link, variety_num
         FROM hzzhqx_reports
         WHERE link_type = 'WECHAT'
           AND link IS NOT NULL
-          AND link LIKE '%mp.weixin.qq.com%'
-          AND publish_time >= :start
-          AND publish_time < :end
+          AND link LIKE '%%mp.weixin.qq.com%%'
+          AND publish_time >= %s
+          AND publish_time < %s
     """
-    params: dict[str, Any] = {"start": f"{start_date} 00:00:00", "end": f"{end_date} 00:00:00"}
+    params: list[Any] = [f"{start_date} 00:00:00", f"{end_date} 00:00:00"]
     if institution:
-        sql += " AND institution = :institution"
-        params["institution"] = institution
+        sql += " AND institution = %s"
+        params.append(institution)
     sql += " ORDER BY publish_time " + ("DESC" if order.lower() == "desc" else "ASC")
     if limit:
-        sql += " LIMIT :limit"
-        params["limit"] = int(limit)
+        sql += " LIMIT %s"
+        params.append(int(limit))
 
-    engine = create_engine(load_config())
-    with engine.connect() as conn:
-        rows = conn.execute(sa.text(sql), params).mappings().all()
+    with connect_mysql(backend_path) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
     out: list[ReportRow] = []
     for item in rows:
         publish_time = item["publish_time"]

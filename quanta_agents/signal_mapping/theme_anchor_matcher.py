@@ -7,6 +7,7 @@ from typing import Any
 
 from quanta_agents.core.config import quanta_data_root
 from quanta_agents.core.io import read_json, relative_to_root
+from quanta_agents.repositories.catalog_repository import CatalogRepository, default_catalog_path, object_catalog_enabled
 
 
 GENERIC_TERMS = {
@@ -247,6 +248,65 @@ class ThemeAnchorIndex:
 EMPTY_THEME_ANCHOR_INDEX = ThemeAnchorIndex(anchors=[], source_paths=[], candidate_ids=[])
 
 
+def _catalog_topic_index(root: Path) -> ThemeAnchorIndex | None:
+    if not object_catalog_enabled():
+        return None
+    db_path = default_catalog_path(root)
+    if not db_path.exists():
+        return None
+    repository = CatalogRepository(root, db_path=db_path, initialize=False)
+    anchors: list[dict[str, Any]] = []
+    for topic in repository.list_topics(limit=1000):
+        metadata = {}
+        try:
+            import json
+
+            metadata = json.loads(topic.get("metadata_json") or "{}")
+        except Exception:
+            metadata = {}
+        aliases = [row.get("alias") for row in repository.topic_aliases(topic["topic_id"]) if row.get("alias")]
+        topic_text = f"{topic.get('canonical_title') or ''} {topic.get('description') or ''} {metadata.get('event_chain') or ''}"
+        aliases.extend(term for term in DOMAIN_TERMS if term in topic_text)
+        anchors.append(
+            {
+                "schema_version": "persistent_topic_registry.v1",
+                "theme_anchor_id": topic["topic_id"],
+                "status": topic.get("status") or "candidate",
+                "title": topic.get("canonical_title") or topic["topic_id"],
+                "description": topic.get("description") or "",
+                "anchor_kind": "persistent_topic_registry",
+                "theme_type": metadata.get("theme_type") or topic.get("topic_type") or "",
+                "source_roles": metadata.get("source_roles") if isinstance(metadata.get("source_roles"), list) else [],
+                "asset_refs": metadata.get("asset_refs") if isinstance(metadata.get("asset_refs"), list) else [],
+                "source_refs": metadata.get("source_refs") if isinstance(metadata.get("source_refs"), list) else [],
+                "aliases": aliases,
+                "event_definition_layers": {"fact_layer": metadata.get("event_chain") or topic.get("description") or ""},
+                "lifecycle": {
+                    "current_phase": topic.get("lifecycle_state") or "candidate",
+                    "first_seen_at": topic.get("first_seen_at"),
+                    "last_seen_at": topic.get("last_active_at"),
+                    "support_count": int(
+                        (
+                            (metadata.get("lifecycle") or {}).get("support_count")
+                            if isinstance(metadata.get("lifecycle"), dict)
+                            else None
+                        )
+                        or float(topic.get("heat_score") or 0) * 10
+                    ),
+                    "review_state": "machine_candidate",
+                },
+                "promotion_policy": "review_required",
+            }
+        )
+    if not anchors:
+        return None
+    return ThemeAnchorIndex(
+        anchors=anchors,
+        source_paths=[relative_to_root(db_path, root)],
+        candidate_ids=["persistent_topic_registry"],
+    )
+
+
 def load_theme_anchor_index(
     root: str | Path | None = None,
     *,
@@ -260,6 +320,9 @@ def load_theme_anchor_index(
         path = Path(candidate_path).expanduser()
         paths = [path / "theme_anchors.json"] if path.is_dir() else [path]
     else:
+        catalog_index = _catalog_topic_index(root_path)
+        if catalog_index is not None:
+            return catalog_index
         paths = _candidate_files(root_path, date_key=date_key, max_files=max_files)
 
     anchors: list[dict[str, Any]] = []

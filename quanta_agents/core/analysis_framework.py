@@ -30,6 +30,7 @@ DIMENSION_TYPE_ALIASES = {
     "inflation_growth": "macro",
     "macro_geopolitics": "geopolitics",
     "weather_yield": "weather",
+    "seasonal": "seasonality",
     "physical_supply_demand": "supply_demand",
     "capacity_supply": "supply",
     "trade_demand": "demand",
@@ -60,6 +61,8 @@ DEFAULT_DIMENSION_WEIGHTS = {
     "substitution": 0.07,
     "logistics": 0.07,
     "seasonality": 0.06,
+    "disease": 0.08,
+    "capacity_cycle": 0.10,
     "other": 0.05,
 }
 
