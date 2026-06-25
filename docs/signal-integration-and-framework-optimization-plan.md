@@ -218,6 +218,53 @@ research_reports canonical/evidence
 - 当前 WeChat 映射仍是单报告内的主题候选，尚未做跨报告重复主题归并。
 - 部分研报栏目标题，如“贵金属”“国债期货”，仍需要下一步用 `theme_anchor` 生命周期和多来源重复出现频率做降噪。
 
+### WO-DEV-20260620-012 incremental state v1
+
+本轮新增 `quanta_agents.signal_mapping.incremental_state`，把既有 `research_signal` /
+`theme_anchor` 候选从“截面候选集”推进到“历史状态更新”：
+
+- CLI：`quanta-signal-incremental-state` / `python -m quanta_agents.signal_mapping.incremental_state`
+- 输入：
+  - 一个或多个 `research_signals.json`
+  - 一个或多个 `theme_anchors.json`
+  - 可选上一版 `incremental_state/latest/research_state.json`
+- 输出：
+  - `agent_workspace/candidates/incremental_state/YYYY/MM/DD/CAND-INCREMENTAL-STATE-*/research_state.json`
+  - `agent_workspace/runs/incremental_state/YYYY/MM/DD/RUN-*/run_manifest.json`
+
+状态对象分三层：
+
+```text
+theme_state    跨日报/新闻/Polymarket/研报的主题生命周期
+event_state    同一事实或同一合约判定事件的观察历史
+dimension_state 同一资产-框架维度-主题下的方向、冲突和证据累计
+```
+
+LLM 接入边界：
+
+- LLM 不直接改历史 state。
+- LLM 在信息处理层生成 `llm_normalization` / `semantic_normalization` 字段，例如：
+  - `canonical_theme_id`
+  - `canonical_title_zh`
+  - `canonical_event_id`
+  - `theme_type`
+  - `framework_node_refs`
+- 增量状态机优先消费这些 canonical 字段；缺失时才使用确定性 `title + asset + theme_type`
+  匹配兜底。
+
+运行示例：
+
+```bash
+quanta-signal-incremental-state \
+  --root /Users/miniquanta/Documents/quanta_data \
+  --signal-set agent_workspace/candidates/signal_map/2026/06/18/CAND-SIGNAL-MAP-*/research_signals.json \
+  --theme-set agent_workspace/candidates/theme_anchor/2026/06/18/CAND-THEME-ANCHOR-*/theme_anchors.json \
+  --date 20260618
+```
+
+生产模式如需推进下一轮增量基线，显式加 `--write-latest`。默认只写 candidate，避免诊断运行覆盖
+`latest`。
+
 ### WO-DEV-20260620-010 opinion radar anchoring v1
 
 `opinion_radar` 的主题生成顺序改为：
@@ -316,6 +363,12 @@ effective_weight =
 3. 对每个主题维护 supports/conflicts/new_signal/tracking。
 4. 把 Polymarket 合约作为 `web_info` 信号参与同一主题，而不是单独展示一套结论。
 
+2026-06-20 运行约束补充：
+
+- 舆情雷达卡片标题必须代表当前 radar bucket（如 `美联储与利率`、`铜`），`theme_anchor` 只作为追踪引用，不能把候选锚点标题反向覆盖到宏观/品种桶。
+- 宏观 bucket 不接受带具体期货品种资产引用的 theme anchor 作为直接锚定，避免新闻文本里出现“黄金”等词就把宏观主题改名为贵金属主题。
+- 品种 bucket 只有在 bucket 品种与 theme anchor 的 `asset_refs` 一致时才允许锚定；宽泛多品种标题（如 `黄金/白银`）不应覆盖单品种 radar 卡片标题。
+
 ## 7. Polymarket 改造
 
 Polymarket 输出必须降级为辅助信号：
@@ -328,7 +381,64 @@ Polymarket 输出必须降级为辅助信号：
 
 展示时写成“预测市场对事件定义/定价的观察”，不要写成“真实概率判断”。
 
-## 8. 任务顺序
+2026-06-20 运行约束补充：
+
+- `fact_layer` 和候选主题展示字段使用单一中文显示名，不再拼接 `中文 / English question`。
+- 原始英文问题只保留在 `source_ref.url`、原始 `hotspots.json` 和溯源字段里，供审计回查。
+- 规则翻译只能兜底常见问题形态；正式方案仍需 LLM 对 event / condition / outcome 做中文主题归并，尤其是同一事件下多个到期日或区间合约。
+
+## 8. 增量主题报告维护
+
+`signal_mapping.theme_report` 是第一版把“单篇研报画像 + 新闻快讯”推进到历史主题状态的候选链路。它不替代正式舆情雷达，也不写 `gold`，只写 `agent_workspace/candidates/theme_report_maintenance`。
+
+输入：
+
+- `futures_daily_single_report_analysis/{date}/WECHAT-PROFILE-V1/per_report/**/*.json`
+- MySQL 新闻快讯，按日读取并通过 taxonomy 映射资产/宏观桶
+- `research_signal.v1` 和 `theme_anchor.v1` schema
+
+处理顺序：
+
+1. 单篇研报字段先按 `日期 + 品种 + 主题` 聚合成日级 signal，避免同一篇/同一天重复刷主题。
+2. 新闻先过滤低信号市场通知，例如 ETF 日报、挂单、LOF 停牌、金饰报价和营销型直播/点击标题。
+3. 价格路径、技术面和期权/ETF 交易型段落默认排除出主题主线；需要回溯时用 `--include-price-validation`。
+4. 研报侧资产名用 taxonomy 归一，避免同一品种在新闻和研报里出现两个 asset id。
+5. 日级 signal/theme 逐日进入 `incremental_state`，维护 `first_seen_at`、`last_seen_at`、`support_count` 和 `observation_count`。
+
+2026-06-20 V4 真实运行：
+
+```bash
+quanta-theme-report-maintain \
+  --root /Volumes/数字大脑/quanta_data \
+  --start-date 20260401 \
+  --end-date 20260620 \
+  --max-report-items-per-asset 3 \
+  --max-news-per-day 500 \
+  --work-order-id WO-DEV-20260620-THEME-REPORT-FULL-INCREMENTAL-V4 \
+  --write-latest
+```
+
+输出：
+
+- `agent_workspace/candidates/theme_report_maintenance/2026/06/20/CAND-THEME-REPORT-20260620-195701051067/`
+- `agent_workspace/candidates/theme_report_maintenance/latest/theme_report.json`
+- `agent_workspace/candidates/theme_report_maintenance/latest/research_state.json`
+
+关键指标：
+
+- 日期覆盖：2026-04-01 到 2026-06-20，共 81 天。
+- 研报画像：3438 篇；活跃研报日期 61 天；研报日级主题信号 16912 条。
+- 新闻：原始快讯 80381 条；映射新闻 29430 条；新闻事件信号 5511 条。
+- 过滤：价格/技术项 12635 条；低信号新闻 3316 条。
+- 状态：主题 827 个；事件 20831 个；schema validation passed。
+
+剩余问题：
+
+- `其他逻辑跟踪` 仍偏高，主要来自跨资产复盘、营销型标题和上游单篇研报抽取未能给出稳定字段。
+- 下一步应在信息处理层接入 LLM normalization，输出 `canonical_title_zh`、`canonical_theme_id`、`canonical_event_id` 和 `theme_type`，再让状态机消费，而不是靠关键词继续堆规则。
+- 前端展示应优先使用资产主题、宏观主题和新拆出的 `避险需求与央行购金`、`资金持仓与交易情绪` 等可解释主题；全局 `other` 只作为诊断桶。
+
+## 9. 任务顺序
 
 1. 期市速递 baseline：生成 `brief_thesis_anchor` 和 `brief_logic_benchmark_map`，把当前高质量日报沉淀成评测样本。
 2. `theme_anchor` 和 `research_signal.v1` 契约。

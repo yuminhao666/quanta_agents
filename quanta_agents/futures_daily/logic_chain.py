@@ -1652,7 +1652,6 @@ def build_logic_chains(
     dimension_scores: dict[str, Any],
     trade_theses: dict[str, Any],
 ) -> dict[str, Any]:
-    links_by_asset = _asset_links(alignment)
     chains_by_asset: dict[str, Any] = {}
     thesis_assets = trade_theses.get("assets") or {}
     scores_assets = dimension_scores.get("assets") or {}

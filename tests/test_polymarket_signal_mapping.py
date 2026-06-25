@@ -48,7 +48,7 @@ def _polymarket_hotspots() -> dict:
             {
                 "market_id": "2593852",
                 "question": "Bitcoin Up or Down - June 19, 3:30AM-3:45AM ET",
-                "question_zh": "比特币 Up or Down - June 19, 3:30AM-3:45AM ET",
+                "question_zh": "6月19日，3:30AM-3:45AM 美东时间比特币上涨还是下跌？",
                 "url": "https://polymarket.com/event/btc-updown-15m-1781854200",
                 "category": "crypto",
                 "category_zh": "加密资产",
@@ -144,6 +144,8 @@ def test_polymarket_hotspots_map_to_low_confidence_research_signals(tmp_path: Pa
     assert anchored["market_observation"]["spread"] == 0.032
     assert anchored["market_observation"]["liquidity_label"] == "medium"
     assert anchored["event_definition_layers"]["settlement_rule_layer"]
+    assert anchored["event_definition_layers"]["fact_layer"] == "美国与伊朗会在2026年6月21日前举行外交会谈吗？"
+    assert " / US x Iran" not in anchored["event_definition_layers"]["fact_layer"]
     assert "not as truth probability" in anchored["notes"]
     assert matches[0]["anchoring_status"] == "anchored"
 

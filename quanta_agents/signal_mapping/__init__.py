@@ -6,7 +6,9 @@ __all__ = [
     "map_polymarket_hotspots_to_signals",
     "map_futures_brief_candidates",
     "map_research_evidence_candidates",
+    "publish_incremental_state",
     "polymarket_market_to_research_signal",
+    "run_theme_report_maintenance",
     "run_polymarket_signal_mapping",
     "run_signal_theme_mapping",
     "theme_anchor_ref",
@@ -21,6 +23,18 @@ def __getattr__(name: str):
         from . import theme_anchor_matcher
 
         return getattr(theme_anchor_matcher, name)
+    if name in {
+        "publish_incremental_state",
+    }:
+        from . import incremental_state
+
+        return getattr(incremental_state, name)
+    if name in {
+        "run_theme_report_maintenance",
+    }:
+        from . import theme_report
+
+        return getattr(theme_report, name)
     if name in {
         "map_polymarket_hotspots_to_signals",
         "polymarket_market_to_research_signal",

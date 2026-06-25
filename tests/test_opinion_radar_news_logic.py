@@ -93,10 +93,13 @@ def test_build_news_logic_radar_maps_flash_to_framework_and_thesis(tmp_path, mon
     result = build_news_logic_radar(flashes, tmp_path, logic_run=run_dir, date_key="20260618")
 
     assert result["stats"]["mapped_event_count"] == 1
+    assert result["stats"]["event_mention_count"] == 1
+    assert result["stats"]["canonical_event_count"] == 1
     event = result["events"][0]
     assert event["asset"] == "原油"
     assert event["framework_node"]["dimension_label"] == "地缘政治"
     assert event["consistency"]["status"] == "supports_thesis"
+    assert result["event_mentions"][0]["canonical_event_id"] == result["canonical_events"][0]["event_id"]
 
 
 def test_publish_news_logic_rolling_window_uses_latest_available_logic_run(tmp_path, monkeypatch):
@@ -388,3 +391,7 @@ def test_news_logic_anchors_events_to_theme_anchor_candidates(tmp_path, monkeypa
     assert result["assets"]["原油"]["theme_anchor_refs"][0]["id"] == "THA-OIL-GEO"
     assert result["stats"]["theme_anchor_match_count"] == 1
     assert result["stats"]["unanchored_event_count"] == 1
+    assert result["stats"]["topic_membership_count"] == 1
+    canonical = next(event for event in result["canonical_events"] if event["source_id"] == "oil-anchored")
+    assert canonical["theme_anchor_refs"][0]["id"] == "THA-OIL-GEO"
+    assert result["topic_memberships"][0]["object_id"] == canonical["event_id"]

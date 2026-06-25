@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from quanta_agents.core.analysis_framework import build_analysis_framework_registry
+from quanta_agents.core.analysis_framework import build_analysis_framework_registry, normalize_dimension_type
 from quanta_agents.core.frameworks import iter_leaf_nodes, load_framework_for_asset
 
 
@@ -85,3 +85,9 @@ def test_build_analysis_framework_registry_separates_dimensions_and_terms(tmp_pa
     assert registry["dimensions"][0]["term_counts"] == {"indicator": 3, "event": 1, "claim": 1}
     assert catalog["stats"]["term_type_counts"] == {"indicator": 3, "event": 1, "claim": 1}
     assert {term["term_type"] for term in catalog["terms"]} == {"indicator", "event", "claim"}
+
+
+def test_normalize_dimension_type_keeps_commodity_specific_categories():
+    assert normalize_dimension_type("seasonal") == "seasonality"
+    assert normalize_dimension_type("disease") == "disease"
+    assert normalize_dimension_type("capacity_cycle") == "capacity_cycle"

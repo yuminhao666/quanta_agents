@@ -255,6 +255,9 @@ tracking              中性跟踪事件
 - 新闻快讯映射到 active framework 维度
 - 新闻与最近研报逻辑链对比
 - 舆情雷达导出接入 news_logic 引用
+- 市场舆情雷达报告生成：`market-radar-report.{json,md}`
+- 报告层把 `supports_thesis`、`thesis_conflict`、`dimension_conflict`、`new_signal` 转成投资逻辑动作：强化、修正/降级、条件性收敛、新主线候选或维持跟踪
+- 聚类质量门：短 ASCII 别名边界匹配，易混中文别名语境保护，具体品种优先于板块/品类桶，汇总新闻和纯行情噪音降权
 
 ### 第二阶段：建议继续做
 

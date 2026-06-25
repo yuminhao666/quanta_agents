@@ -201,3 +201,15 @@ def test_question_translation_handles_common_macro_political_patterns() -> None:
     assert analysis.translate_question_zh(
         "Will the Fed increase interest rates by 25 bps after the July 2026 meeting?"
     ) == "2026年7月会议后，美联储会加息 25 bps 吗？"
+    assert analysis.translate_question_zh(
+        "Iran agrees to end enrichment of uranium by June 30?"
+    ) == "伊朗会在6月30日前同意停止铀浓缩吗？"
+    assert analysis.translate_question_zh(
+        "Will the price of Solana be between $70 and $80 on June 20?"
+    ) == "6月20日索拉纳价格会在 70 至 80 美元之间吗？"
+    assert analysis.translate_question_zh(
+        "Bitcoin Up or Down - June 20, 5AM ET"
+    ) == "6月20日，5AM 美东时间比特币上涨还是下跌？"
+    assert analysis.translate_question_zh(
+        "Will the next diplomatic US-Iran meeting be in Switzerland?"
+    ) == "下一次美伊外交会谈会在瑞士举行吗？"

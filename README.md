@@ -37,6 +37,15 @@ raw object
 | `canonicalizers` | PDF、HTML、Excel、JSON、截图 OCR 等标准化；写 `canonical_documents` |
 | `evidence_extractors` | snippet、表格单元、数据点、冲突证据和 evidence capsule 抽取 |
 | `prompt_pack_builder` | 按 system rules、框架、图谱、主题、证据和 output schema 组装 Prompt Pack |
+| `quanta_agents/core` | 配置、IO、LLM、taxonomy、framework registry、审计和权重优化 |
+| `quanta_agents/futures_daily` | 期市日报原文、框架对齐、维度评分、主线、逻辑链和商品数据简报 |
+| `quanta_agents/opinion_radar` | 舆情主题聚类、新闻逻辑雷达和市场舆情报告 |
+| `quanta_agents/news_brief` | 小时/半日新闻中间产物和 graph trigger candidates |
+| `quanta_agents/research_reports` | 微信研报画像、canonical bridge 和研报 evidence 合成 |
+| `quanta_agents/signal_mapping` | research signal、theme anchor、incremental state 和主题报告维护 |
+| `quanta_agents/asset_event_state` | canonical event、graph event、driver state 和 driver-only narrative |
+| `quanta_agents/polymarket_daily` | Polymarket 热点快照和日报候选 |
+| `quanta_agents/maintenance` | 知识库健康巡检 runner |
 | `agents/futures_daily` | 期货市场日报、品种分析、主题生命周期和 review package 生成 |
 | `agents/opinion_radar` | 商品/宏观快讯舆情雷达候选快照生成 |
 | `agents/assistant_qa` | 前端问答助手的受控召回、证据回答和缺证据处理 |
@@ -47,8 +56,62 @@ raw object
 | `tests` | schema、writer、pipeline 的最小回归测试 |
 
 架构图见：[docs/quanta-agents-architecture.md](/Users/miniquanta/Documents/quanta_agents/docs/quanta-agents-architecture.md)。
+当前项目结构、CLI 和产物索引见：[docs/project-structure-and-outputs.md](/Users/miniquanta/Documents/quanta_agents/docs/project-structure-and-outputs.md)。
+对象、显式关系、共享锚点和状态快照架构见：[docs/research-object-relation-architecture.md](/Users/miniquanta/Documents/quanta_agents/docs/research-object-relation-architecture.md)。
+2026-06-25 新闻关系架构的多 Agent 真实数据迭代记录见：[docs/news-relation-agent-iteration-20260625.md](/Users/miniquanta/Documents/quanta_agents/docs/news-relation-agent-iteration-20260625.md)。
 期市速递、动态逻辑链、舆情雷达、研报主题和 Polymarket 的统一改造方案见：[docs/signal-integration-and-framework-optimization-plan.md](/Users/miniquanta/Documents/quanta_agents/docs/signal-integration-and-framework-optimization-plan.md)。
 知识库维护 Agent 的运行手册见：[docs/knowledge-maintenance-agent-runbook.md](/Users/miniquanta/Documents/quanta_agents/docs/knowledge-maintenance-agent-runbook.md)。
+资产事件状态机见：[docs/asset-event-state-machine.md](/Users/miniquanta/Documents/quanta_agents/docs/asset-event-state-machine.md)。
+2026-06-20 现有代码真实数据运行反馈见：[docs/runtime-code-run-feedback-20260620.md](/Users/miniquanta/Documents/quanta_agents/docs/runtime-code-run-feedback-20260620.md)。
+
+## 当前产物入口
+
+平台和人工复核优先读取这些 latest 或 manifest：
+
+```text
+agent_workspace/candidates/opinion_radar/latest/radar.json
+agent_workspace/candidates/opinion_radar/news_logic/latest/news-logic.json
+agent_workspace/candidates/opinion_radar/reports/latest/market-radar-report.{json,md}
+agent_workspace/candidates/news_brief/hourly/latest/hourly-news-brief.{json,md}
+agent_workspace/candidates/news_brief/half_day/latest/half-day-news-brief.{json,md}
+agent_workspace/candidates/theme_report_maintenance/latest/theme_report.json
+agent_workspace/candidates/incremental_state/latest/research_state.json
+agent_workspace/candidates/asset_event_state/latest/{events,drivers,narratives}.json
+indexes/asset_event_state/events.sqlite3
+indexes/object_catalog/quanta_catalog.sqlite3
+```
+
+完整产物表和维护规则见项目结构索引文档；README 只保留最高频入口。
+
+## Research Object Catalog
+
+`quanta_agents.domain` 和 `quanta_agents.repositories.catalog_repository` 提供第一版统一底座：
+
+- `ResearchObject` / `ObjectRelation`：给新闻、研报证据、signal、topic、report、agent run 一个稳定 `object_id` 和可追溯关系。
+- `CanonicalEvent`：同一现实事件只保存一次；资产、框架节点和 Topic 通过 link 表连接。
+- `Topic` / `TopicMembership`：把 `theme_anchor` 从近期候选文件提升为长期 persistent topic registry。
+- `ReportDependency`：Agent 报告只登记依赖和视图关系，默认 `independent_evidence_weight=0`，不提高 topic credibility 或 source diversity。
+
+SQLite sidecar 默认写入：
+
+```text
+indexes/object_catalog/quanta_catalog.sqlite3
+```
+
+它不替代现有 JSON candidate/review/gold 文件体系，也不修改 `gj_chainplatform` 当前读取合同。旧 pipeline 继续先生成原路径产物；当显式启用时，adapter 在产物生成后把对象和关系登记到 Catalog：
+
+```bash
+export QUANTA_OBJECT_CATALOG_ENABLED=true
+export QUANTA_OBJECT_CATALOG_PATH="${GJ_QUANTA_DATA_ROOT:-/Volumes/数字大脑/quanta_data}/indexes/object_catalog/quanta_catalog.sqlite3"
+
+quanta-catalog-init
+quanta-catalog-status
+quanta-catalog-register --kind news_logic --path agent_workspace/candidates/opinion_radar/news_logic/latest/news-logic.json
+quanta-catalog-backfill --limit 20
+quanta-topic-list
+```
+
+所有写命令支持 `--dry-run`；`backfill` 默认只处理小批量，不做全历史迁移。
 
 ## 已整合功能
 
@@ -180,6 +243,42 @@ quanta-polymarket-daily --focus all --no-llm
 如果 CLI 不在 `PATH`，可设置 `POLYMARKET_CLI=/path/to/polymarket` 或传入
 `--cli /path/to/polymarket`。配置 DeepSeek 或 MiniMax M3 key 后去掉 `--no-llm`
 可让模型在结构化热点上写日报；没有 key 会自动降级为规则日报。
+
+### 资产事件状态机
+
+`quanta_agents.asset_event_state` 是旧 pipeline 的非破坏式收敛层。它把
+`news_logic`、`wechat_evidence`、`incremental_state`、`research_signal`、`polymarket_daily`
+等 legacy 产物统一转换为唯一 canonical event，然后更新 Driver State Machine，最后只基于
+driver 生成 narrative。它不修改 raw 表，不写 gold；索引写入：
+
+```text
+indexes/asset_event_state/events.sqlite3
+agent_workspace/candidates/asset_event_state/{y}/{m}/{d}/CAND-ASSET-EVENT-STATE-*/
+agent_workspace/runs/asset_event_state/{y}/{m}/{d}/RUN-*/
+```
+
+运行：
+
+```bash
+quanta-asset-event-state --input /path/to/raw_or_legacy_output.json --date 20260620
+```
+
+数据源、处理阶段、产物合约和平台 Trigger Graph 展示口径见
+[`docs/asset-driver-cognition-data-flow.md`](docs/asset-driver-cognition-data-flow.md)。
+
+主链路：
+
+```text
+Raw / legacy candidate
+  -> EventCanonicalAdapter
+  -> event_log + event_table
+  -> Event Graph / Industry Graph / Causal Graph
+  -> causal_path_table
+  -> signal_table
+  -> DriverStateMachine
+  -> driver_state_table
+  -> driver-only ThemeNarrativeService
+```
 
 ## 依赖
 

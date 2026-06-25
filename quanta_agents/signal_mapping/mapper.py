@@ -12,6 +12,7 @@ from typing import Any
 from quanta_agents.core.config import quanta_data_root
 from quanta_agents.core.io import dated_parts, read_json, relative_to_root, utc_now_iso, write_json
 from quanta_agents.adapters import register_payload_if_enabled
+from quanta_agents.knowledge_fabric import build_atomic_claim_candidate_set
 
 
 MAPPER_VERSION = "signal_theme_mapper.v1"
@@ -1057,6 +1058,16 @@ def run_signal_theme_mapping(
     signals = _dedupe_by_id([*futures_signals, *research_signals], "signal_id")
     themes = _dedupe_by_id([*futures_themes, *research_themes], "theme_anchor_id")
     _attach_missing_theme_signal_refs(signals, themes)
+    atomic_claim_payload = build_atomic_claim_candidate_set(
+        evidence_units,
+        root=root_path,
+        evidence_paths=evidence_path_map,
+        themes=themes,
+        signals=signals,
+        candidate_id=f"CAND-ATOMIC-CLAIM-{_date_key(inferred_date)}-{stamp}",
+        work_order_id=work_order_id,
+        generated_at=created_at,
+    )
 
     validation_result: dict[str, Any] = {"schema_validation": "not_run"}
     if validate:
@@ -1080,6 +1091,7 @@ def run_signal_theme_mapping(
         run_path = _run_dir(root_path, date_key, run_id)
         signal_file = signal_dir / "research_signals.json"
         theme_file = theme_dir / "theme_anchors.json"
+        atomic_claim_file = signal_dir / "atomic_claims.json"
         signal_manifest = signal_dir / "manifest.json"
         theme_manifest = theme_dir / "manifest.json"
         run_manifest = run_path / "run_manifest.json"
@@ -1104,6 +1116,7 @@ def run_signal_theme_mapping(
         }
         write_json(signal_file, signal_payload)
         write_json(theme_file, theme_payload)
+        write_json(atomic_claim_file, atomic_claim_payload)
         write_json(
             signal_manifest,
             {
@@ -1115,8 +1128,12 @@ def run_signal_theme_mapping(
                 "generated_at": created_at,
                 "work_order_id": work_order_id,
                 "schema_validated": validation_result.get("schema_validation") == "passed",
-                "outputs": {"research_signals": relative_to_root(signal_file, root_path)},
+                "outputs": {
+                    "research_signals": relative_to_root(signal_file, root_path),
+                    "atomic_claims": relative_to_root(atomic_claim_file, root_path),
+                },
                 "signal_count": len(signals),
+                "atomic_claim_count": atomic_claim_payload["stats"]["atomic_claim_count"],
                 "requires_review": True,
             },
         )
@@ -1155,9 +1172,11 @@ def run_signal_theme_mapping(
                 "output_refs": output_refs,
                 "signal_count": len(signals),
                 "theme_anchor_count": len(themes),
+                "atomic_claim_count": atomic_claim_payload["stats"]["atomic_claim_count"],
                 "schema_validation": validation_result,
                 "human_review_required": True,
                 "notes": [
+                    "atomic_claims.json is a sidecar over existing research_report_evidence_unit.v1",
                     "market_brief remains the primary display contract",
                     "opinion_radar and Polymarket runtime are not changed by this mapper",
                     "Polymarket must enter later as web_info/event_definition/low_confidence_signal",
@@ -1171,6 +1190,7 @@ def run_signal_theme_mapping(
             "signal_candidate_dir": relative_to_root(signal_dir, root_path),
             "signal_manifest": relative_to_root(signal_manifest, root_path),
             "research_signals": relative_to_root(signal_file, root_path),
+            "atomic_claims": relative_to_root(atomic_claim_file, root_path),
             "theme_candidate_dir": relative_to_root(theme_dir, root_path),
             "theme_manifest": relative_to_root(theme_manifest, root_path),
             "theme_anchors": relative_to_root(theme_file, root_path),
@@ -1183,6 +1203,7 @@ def run_signal_theme_mapping(
         "date": date_key,
         "signal_count": len(signals),
         "theme_anchor_count": len(themes),
+        "atomic_claim_count": atomic_claim_payload["stats"]["atomic_claim_count"],
         "schema_validation": validation_result,
         "paths": paths,
         "input_refs": input_refs,

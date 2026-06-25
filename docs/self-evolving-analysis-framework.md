@@ -4,6 +4,8 @@
 
 分析框架是长期知识，研报、新闻、数据库是进入框架的证据流。任何模型生成的新维度、新指标、新逻辑模板，都先写 candidate，经人工审核后再晋级到 gold/active framework。
 
+长期 framework 只保存稳定维度、规则和传导模板；具体指标、事件触发词、研报 claim pattern 必须拆到独立 catalog 文件。研报滚动生成的是 logic node、temporal episode 和 driver trigger candidate，不直接污染长期 framework。详细目录和算法见：[research-logic-graph-framework-layout.md](research-logic-graph-framework-layout.md)。
+
 ## 分层结构
 
 1. 标准资产 taxonomy
@@ -94,6 +96,36 @@ agent_workspace/candidates/framework_optimization/latest/framework-weight-optimi
 该产物只生成候选，不直接写回 active framework。前端可展示 `action`、`proposal_summary`、`current_metrics`、`historical_experience`、`recommended_adjustment` 和 `llm_review`。
 
 生成微信公众号研报证据池，并刷新投研结论候选：
+
+```bash
+quanta-wechat-single-report-store \
+  --quanta-root /Volumes/数字大脑/quanta_data \
+  --start-date 20260401 \
+  --end-date 20260620 \
+  --write-legacy-candidate-cache \
+  --legacy-run-id WECHAT-PROFILE-V1
+```
+
+该步骤先沉淀单篇研报画像，字段对齐旧版 `tools/commodity_report`：
+
+- `sentiment_scores`：每个品种的 -10 到 10 多空评分。
+- `detailed_analysis[*].bullish_factors` / `bearish_factors`：单篇内利多/利空论据。
+- `detailed_analysis[*].key_data` / `key_events`：关键数据和重要事件。
+- `detailed_analysis[*].supply_demand` / `price_forecast`：供需判断和价格预期。
+
+产物路径：
+
+```text
+canonical_documents/research_reports/structured_profiles/hzzhqx_wechat/{yyyy}/{mm}/{dd}/RREP-PROFILE-*.json
+agent_workspace/runs/research_reports/single_report_store/{yyyy}/{mm}/{dd}/RUN-.../profile_index.json
+agent_workspace/runs/research_reports/single_report_store/{yyyy}/{mm}/{dd}/RUN-.../run_manifest.json
+agent_workspace/candidates/futures_daily_single_report_analysis/{yyyy}/{mm}/{dd}/WECHAT-PROFILE-V1/per_report/{机构}/*.json
+```
+
+`profile_id` 由 `raw_id + 正文 hash + 抽取版本` 生成；同一篇研报重复运行会复用已存在画像，后续 LLM 精修、维度对齐和主题演化可以在此基础上增量处理，避免反复解析原文。
+`WECHAT-PROFILE-V1` 是兼容旧版 `COMMODITY-LEGACY/per_report` 的 candidate 输出，用于前端/评估读取单篇研报结果；不写入 `COMMODITY-LEGACY`，避免污染旧版 LLM 缓存。
+
+在单篇画像已存在的基础上，生成微信公众号研报证据池，并刷新投研结论候选：
 
 ```bash
 quanta-wechat-research-evidence \

@@ -216,6 +216,12 @@ PHRASE_ZH = (
     ("US-Iran", "美伊"),
     ("US x Iran", "美国与伊朗"),
     ("United States", "美国"),
+    ("United States of America", "美国"),
+    ("Iran", "伊朗"),
+    ("Israel", "以色列"),
+    ("Hezbollah", "真主党"),
+    ("Lebanon", "黎巴嫩"),
+    ("Switzerland", "瑞士"),
     ("Khamenei", "哈梅内伊"),
     ("Ayatollah", "阿亚图拉"),
     ("JD Vance", "JD Vance"),
@@ -224,14 +230,25 @@ PHRASE_ZH = (
     ("Trump", "特朗普"),
     ("Bitcoin", "比特币"),
     ("Ethereum", "以太坊"),
-    ("Solana", "Solana"),
+    ("Solana", "索拉纳"),
+    ("BNB", "BNB"),
     ("XRP", "XRP"),
     ("Gold", "黄金"),
+    ("Carnival", "嘉年华邮轮"),
+    ("Ivan Cepeda Castro", "伊万·塞佩达·卡斯特罗"),
+    ("Colombian", "哥伦比亚"),
     ("S&P 500", "标普500"),
     ("diplomatic meeting", "外交会谈"),
     ("Signing Ceremony", "签署仪式"),
     ("Fed interest rates", "美联储利率"),
     ("interest rates", "利率"),
+    ("approval rating", "支持率"),
+    ("quarterly earnings", "季度业绩"),
+    ("presidential election", "总统选举"),
+    ("permanent peace deal", "永久和平协议"),
+    ("airspace", "领空"),
+    ("end enrichment of uranium", "停止铀浓缩"),
+    ("enrichment of uranium", "铀浓缩"),
     ("withdraw troops", "撤军"),
     ("Iranian region", "伊朗地区"),
 )
@@ -333,6 +350,19 @@ def _translate_dateish(value: str) -> str:
     return text
 
 
+def _translate_direction_window(value: str) -> str:
+    text = value.strip()
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s*-\s*", "，", text)
+    text = _translate_dateish(text)
+    text = text.replace(",", "，")
+    text = re.sub(r"，\s+", "，", text)
+    text = re.sub(r"\bAM\b", "AM", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bPM\b", "PM", text, flags=re.IGNORECASE)
+    text = text.replace("ET", "美东时间")
+    return text
+
+
 def translate_question_zh(question: str) -> str:
     text = question.strip()
     text = text.rstrip()
@@ -369,6 +399,22 @@ def translate_question_zh(question: str) -> str:
         return f"美国与伊朗会在{_translate_dateish(match.group(1))}前举行外交会谈吗？"
 
     match = re.fullmatch(
+        r"Iran agrees to end enrichment of uranium by (.+?)\?",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return f"伊朗会在{_translate_dateish(match.group(1))}前同意停止铀浓缩吗？"
+
+    match = re.fullmatch(
+        r"Will the next diplomatic US-Iran meeting be in (.+?)\?",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return f"下一次美伊外交会谈会在{_translate_phrases(match.group(1))}举行吗？"
+
+    match = re.fullmatch(
         r"Will\s+(.+?)\s+attend the US-Iran Signing Ceremony\?",
         text,
         flags=re.IGNORECASE,
@@ -386,6 +432,18 @@ def translate_question_zh(question: str) -> str:
         price = match.group(2)
         date = _translate_dateish(match.group(3))
         return f"{date}{asset}价格会高于 {price} 美元吗？"
+
+    match = re.fullmatch(
+        r"Will the price of (.+?) be between \$(.+?) and \$(.+?) on (.+?)\?",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        asset = _translate_phrases(match.group(1))
+        low = match.group(2)
+        high = match.group(3)
+        date = _translate_dateish(match.group(4))
+        return f"{date}{asset}价格会在 {low} 至 {high} 美元之间吗？"
 
     match = re.fullmatch(
         r"Will\s+(.+?)\s+hit \$(.+?) in (.+?)\?",
@@ -421,6 +479,18 @@ def translate_question_zh(question: str) -> str:
         date = _translate_dateish(match.group(2))
         return f"{date}{asset}上涨还是下跌？"
 
+    match = re.fullmatch(r"(.+?) Up or Down\s*-\s*(.+)", text, flags=re.IGNORECASE)
+    if match:
+        asset = _translate_phrases(match.group(1))
+        window = _translate_direction_window(match.group(2))
+        return f"{window}{asset}上涨还是下跌？"
+
+    match = re.fullmatch(r"(.+?) Opens Up or Down\s*-\s*(.+)", text, flags=re.IGNORECASE)
+    if match:
+        asset = _translate_phrases(match.group(1))
+        window = _translate_direction_window(match.group(2))
+        return f"{window}{asset}开盘上涨还是下跌？"
+
     match = re.fullmatch(
         r"Will there be no change in Fed interest rates after the (.+?) meeting\?",
         text,
@@ -442,6 +512,69 @@ def translate_question_zh(question: str) -> str:
         amount = match.group(2)
         date = _translate_dateish(match.group(3))
         return f"{date}会议后，美联储会{action} {amount} 吗？"
+
+    match = re.fullmatch(
+        r"Will\s+(.+?)'?\s*['’]s approval rating be between (.+?) and (.+?) on (.+?)\?",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        person = _translate_phrases(match.group(1))
+        low = match.group(2)
+        high = match.group(3)
+        date = _translate_dateish(match.group(4))
+        return f"{date}{person}支持率会在 {low} 至 {high} 之间吗？"
+
+    match = re.fullmatch(r"Will\s+(.+?)\s+beat quarterly earnings\?", text, flags=re.IGNORECASE)
+    if match:
+        company = _translate_phrases(match.group(1))
+        return f"{company}季度业绩会超预期吗？"
+
+    match = re.fullmatch(
+        r"Will\s+(.+?)\s+agree to withdraw troops from the Iranian region by (.+?)\?",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        actor = _translate_phrases(match.group(1))
+        date = _translate_dateish(match.group(2))
+        return f"{actor}会在{date}前同意从伊朗地区撤军吗？"
+
+    match = re.fullmatch(r"(.+?) x (.+?) permanent peace deal by (.+?)\?", text, flags=re.IGNORECASE)
+    if match:
+        side_a = _translate_phrases(match.group(1))
+        side_b = _translate_phrases(match.group(2))
+        date = _translate_dateish(match.group(3))
+        return f"{side_a}与{side_b}会在{date}前达成永久和平协议吗？"
+
+    match = re.fullmatch(r"Will\s+(.+?)\s+close its airspace by (.+?)\?", text, flags=re.IGNORECASE)
+    if match:
+        actor = _translate_phrases(match.group(1))
+        date = _translate_dateish(match.group(2))
+        return f"{actor}会在{date}前关闭领空吗？"
+
+    match = re.fullmatch(r"(.+?) closes its airspace by (.+?)\?", text, flags=re.IGNORECASE)
+    if match:
+        actor = _translate_phrases(match.group(1))
+        date = _translate_dateish(match.group(2))
+        return f"{actor}会在{date}前关闭领空吗？"
+
+    match = re.fullmatch(r"(.+?) withdraws from (.+?) by (.+?)\?", text, flags=re.IGNORECASE)
+    if match:
+        actor = _translate_phrases(match.group(1))
+        place = _translate_phrases(match.group(2))
+        date = _translate_dateish(match.group(3))
+        return f"{actor}会在{date}前从{place}撤出吗？"
+
+    match = re.fullmatch(
+        r"Will\s+(.+?)\s+win the (.+?) presidential election\?",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        person = _translate_phrases(match.group(1))
+        election = _translate_phrases(match.group(2))
+        return f"{person}会赢得{election}总统选举吗？"
 
     match = re.fullmatch(
         r"Will\s+(.+?)\s+by\s+(.+?)\?",

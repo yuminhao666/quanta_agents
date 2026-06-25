@@ -31,6 +31,11 @@ def register_payload_if_enabled(
         from quanta_agents.adapters.theme_anchor_adapter import register_theme_anchor_payload
 
         return register_theme_anchor_payload(repository, payload)
+    if kind == "news_event_batch":
+        from quanta_agents.adapters.news_event_catalog_adapter import register_news_event_batch_result
+
+        manifest_uri = relative_to_root(Path(source_path), root_path) if source_path else None
+        return register_news_event_batch_result(repository, payload, manifest_uri=manifest_uri)
     if kind == "run_manifest":
         from quanta_agents.adapters.run_manifest_adapter import register_run_manifest
 

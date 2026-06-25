@@ -54,6 +54,50 @@ def _write_theme_anchor_set(tmp_path):
     return path
 
 
+def _write_gold_silver_anchor_set(tmp_path):
+    path = (
+        tmp_path
+        / "agent_workspace/candidates/theme_anchor/2026/06/18/"
+        "CAND-THEME-ANCHOR-GOLD/theme_anchors.json"
+    )
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "theme_anchor_candidate_set.v1",
+                "status": "candidate",
+                "candidate_id": "CAND-THEME-ANCHOR-GOLD",
+                "theme_anchors": [
+                    {
+                        "schema_version": "theme_anchor.v1",
+                        "theme_anchor_id": "THA-GOLD-SILVER",
+                        "status": "candidate",
+                        "title": "黄金/白银",
+                        "description": "黄金和白银价格验证主题。",
+                        "anchor_kind": "agent_cluster_candidate",
+                        "theme_type": "price_validation",
+                        "source_roles": ["research_report"],
+                        "asset_refs": [{"id": "FUT-AU", "label": "黄金", "ref_type": "asset"}],
+                        "source_refs": [],
+                        "aliases": ["黄金"],
+                        "event_definition_layers": {
+                            "fact_layer": "黄金与白银价格验证。",
+                            "political_layer": None,
+                            "time_window_layer": "2026-06-18 daily baseline",
+                            "settlement_rule_layer": None,
+                        },
+                        "lifecycle": {"review_state": "machine_candidate"},
+                        "promotion_policy": "review_required",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_snapshot_buckets_flashes_without_llm(monkeypatch, tmp_path):
     taxonomy_path = tmp_path / "futures_assets.v1.json"
     taxonomy_path.write_text(
@@ -237,6 +281,124 @@ def test_snapshot_marks_unanchored_theme_candidate(monkeypatch, tmp_path):
     assert theme["anchoring_status"] == "unanchored_theme_candidate"
     assert theme["theme_anchor_refs"] == []
     assert snapshot["stats"]["unanchored_theme_count"] == 1
+
+
+def test_snapshot_keeps_macro_bucket_title_when_asset_anchor_matches_news_text(monkeypatch, tmp_path):
+    taxonomy_path = tmp_path / "futures_assets.v1.json"
+    taxonomy_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "asset_taxonomy.v1",
+                "assets": [
+                    {
+                        "asset_id": "FUT-AU",
+                        "canonical_name": "黄金",
+                        "category": "贵金属",
+                        "sector": "有色",
+                        "aliases": ["黄金"],
+                    }
+                ],
+                "macro_buckets": [
+                    {"bucket_id": "fed_rate", "label": "美联储与利率", "keywords": ["美联储", "加息"]},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    theme_path = _write_gold_silver_anchor_set(tmp_path)
+    monkeypatch.setenv("GJ_ASSET_TAXONOMY_PATH", str(taxonomy_path))
+    service.dictionary._taxonomy.cache_clear()
+    monkeypatch.setattr(service.db, "latest_time", lambda: datetime(2026, 6, 18, 12, 0, 0))
+    monkeypatch.setattr(
+        service.db,
+        "fetch_flashes",
+        lambda start, end: [
+            {
+                "flash_id": "fed-gold",
+                "publish_time": "2026-06-18 09:00:00",
+                "important": 1,
+                "title": "市场定价显示，美联储加息押注上升，黄金承压",
+                "content": "",
+            }
+        ],
+    )
+
+    snapshot = service.snapshot(
+        hours=24,
+        top=10,
+        name_llm=False,
+        root=tmp_path,
+        theme_anchor_path=str(theme_path),
+    )
+
+    macro = next(theme for theme in snapshot["themes"] if theme["label"] == "美联储与利率")
+    gold = next(theme for theme in snapshot["themes"] if theme["label"] == "黄金")
+    assert macro["theme"] == "美联储与利率"
+    assert macro["theme_anchor_refs"] == []
+    assert macro["anchoring_status"] == "unanchored_theme_candidate"
+    assert gold["theme"] == "黄金"
+    assert gold["anchored_theme_title"] == "黄金/白银"
+    assert gold["theme_anchor_refs"][0]["id"] == "THA-GOLD-SILVER"
+
+
+def test_snapshot_rejects_variety_anchor_when_anchor_asset_differs(monkeypatch, tmp_path):
+    taxonomy_path = tmp_path / "futures_assets.v1.json"
+    taxonomy_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "asset_taxonomy.v1",
+                "assets": [
+                    {
+                        "asset_id": "FUT-CU",
+                        "canonical_name": "铜",
+                        "category": "有色金属",
+                        "sector": "有色",
+                        "aliases": ["铜"],
+                    },
+                    {
+                        "asset_id": "FUT-AU",
+                        "canonical_name": "黄金",
+                        "category": "贵金属",
+                        "sector": "有色",
+                        "aliases": ["黄金"],
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    theme_path = _write_gold_silver_anchor_set(tmp_path)
+    monkeypatch.setenv("GJ_ASSET_TAXONOMY_PATH", str(taxonomy_path))
+    service.dictionary._taxonomy.cache_clear()
+    monkeypatch.setattr(service.db, "latest_time", lambda: datetime(2026, 6, 18, 12, 0, 0))
+    monkeypatch.setattr(
+        service.db,
+        "fetch_flashes",
+        lambda start, end: [
+            {
+                "flash_id": "cu-gold-switch",
+                "publish_time": "2026-06-18 09:00:00",
+                "important": 1,
+                "title": "DeepTalk：铜与黄金，一场悄然发生的大切换",
+                "content": "",
+            }
+        ],
+    )
+
+    snapshot = service.snapshot(
+        hours=24,
+        top=10,
+        name_llm=False,
+        root=tmp_path,
+        theme_anchor_path=str(theme_path),
+    )
+
+    copper = next(theme for theme in snapshot["themes"] if theme["label"] == "铜")
+    assert copper["theme"] == "铜"
+    assert copper["theme_anchor_refs"] == []
+    assert copper["anchoring_status"] == "unanchored_theme_candidate"
 
 
 def test_snapshot_prefers_variety_bucket_and_avoids_usd_quote_noise(monkeypatch, tmp_path):

@@ -18,6 +18,7 @@ from quanta_agents.core.llm_json import parse_json_object
 from quanta_agents.core.taxonomy import load_asset_taxonomy
 from quanta_agents.adapters import register_payload_if_enabled
 from quanta_agents.futures_daily.framework_alignment import _match_framework_node
+from quanta_agents.knowledge_fabric import build_news_event_sidecar
 from quanta_agents.signal_mapping.theme_anchor_matcher import (
     ThemeAnchorIndex,
     load_theme_anchor_index,
@@ -480,7 +481,7 @@ def build_news_logic_radar(
         for payload in by_asset.values()
         if isinstance(payload.get("llm_assessment"), dict)
     ]
-    return {
+    payload = {
         "schema_version": "news_logic_radar.v1",
         "status": "candidate",
         "generated_at": utc_now_iso(),
@@ -513,6 +514,16 @@ def build_news_logic_radar(
         "assets": dict(sorted(by_asset.items(), key=lambda item: item[1]["heat"], reverse=True)),
         "events": sorted(events, key=lambda item: (item.get("publish_time") or "", item["heat"]), reverse=True),
     }
+    sidecar = build_news_event_sidecar(payload, generated_at=payload["generated_at"])
+    payload["event_mentions"] = sidecar["event_mentions"]
+    payload["canonical_events"] = sidecar["canonical_events"]
+    payload["topic_memberships"] = sidecar["topic_memberships"]
+    payload["persistent_topics"] = sidecar["persistent_topics"]
+    payload["semantic_layer"]["event_canonicalization"] = "event_mention_and_canonical_event_sidecar"
+    payload["stats"]["event_mention_count"] = sidecar["stats"]["event_mention_count"]
+    payload["stats"]["canonical_event_count"] = sidecar["stats"]["canonical_event_count"]
+    payload["stats"]["topic_membership_count"] = sidecar["stats"]["topic_membership_count"]
+    return payload
 
 
 def fetch_flashes_for_window(date: str | None = None, hours: int = 24) -> list[dict[str, Any]]:
